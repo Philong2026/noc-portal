@@ -5,6 +5,12 @@ import { mockApi } from './mockApi'
 
 const TOKEN_KEY = 'noc-automation-token'
 const USER_KEY = 'noc-automation-user'
+const LOCAL_AUTH_KEY = 'noc-automation-local-auth'
+const demoAccounts = {
+  'admin@nocautomation.com': { password: 'Admin123!', name: 'NOC Administrator', role: 'Admin' },
+  'operator@nocautomation.com': { password: 'Operator123!', name: 'NOC Operator', role: 'Operator' },
+  'viewer@nocautomation.com': { password: 'Viewer123!', name: 'NOC Viewer', role: 'Viewer' },
+}
 const API_BASE = import.meta.env.VITE_API_URL || '/api'
 const AuthContext = createContext(null)
 
@@ -14,15 +20,17 @@ async function apiRequest(path, options = {}) {
     headers: { 'Content-Type': 'application/json', ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}), ...(options.headers || {}) },
   })
   const data = response.status === 204 ? null : await response.json()
-  if (!response.ok) throw new Error(data?.error || 'Request failed.')
+  if (!response.ok) { const error = new Error(data?.error || 'Request failed.'); error.status = response.status; throw error }
   return data
 }
 
 function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY))
   const [user, setUser] = useState(() => { try { return JSON.parse(localStorage.getItem(USER_KEY)) || null } catch { return null } })
-  const [ready, setReady] = useState(() => !localStorage.getItem(TOKEN_KEY))
+  const [localAuth, setLocalAuth] = useState(() => localStorage.getItem(LOCAL_AUTH_KEY) === 'true')
+  const [ready, setReady] = useState(() => !localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LOCAL_AUTH_KEY) === 'true')
   useEffect(() => {
+    if (localAuth) { setReady(true); return undefined }
     if (!token) { setReady(true); return undefined }
     let cancelled = false
     setReady(false)
@@ -32,10 +40,21 @@ function AuthProvider({ children }) {
       if (!cancelled) { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY); setToken(null); setUser(null) }
     }).finally(() => { if (!cancelled) setReady(true) })
     return () => { cancelled = true }
-  }, [token])
-  const signIn = async (email, password) => { const data = await apiRequest('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }); localStorage.setItem(TOKEN_KEY, data.token); localStorage.setItem(USER_KEY, JSON.stringify(data.user)); setUser(data.user); setToken(data.token); return data }
+  }, [localAuth, token])
+  const signIn = async (email, password) => {
+    try {
+      const data = await apiRequest('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
+      localStorage.removeItem(LOCAL_AUTH_KEY); localStorage.setItem(TOKEN_KEY, data.token); localStorage.setItem(USER_KEY, JSON.stringify(data.user)); setLocalAuth(false); setUser(data.user); setToken(data.token); return data
+    } catch (error) {
+      const account = demoAccounts[email.trim().toLowerCase()]
+      const backendUnavailable = !error.status || error.status >= 500
+      if (!backendUnavailable || !account || account.password !== password) throw error
+      const localUser = { id: `demo-${account.role.toLowerCase()}`, name: account.name, email: email.trim().toLowerCase(), role: account.role }
+      localStorage.setItem(LOCAL_AUTH_KEY, 'true'); localStorage.setItem(TOKEN_KEY, `local-demo-${account.role.toLowerCase()}`); localStorage.setItem(USER_KEY, JSON.stringify(localUser)); setLocalAuth(true); setUser(localUser); setToken(`local-demo-${account.role.toLowerCase()}`); return { user: localUser, local: true }
+    }
+  }
   const register = async (name, email, password, role) => { const data = await apiRequest('/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password, role }) }); localStorage.setItem(TOKEN_KEY, data.token); localStorage.setItem(USER_KEY, JSON.stringify(data.user)); setUser(data.user); setToken(data.token); return data }
-  const signOut = async () => { try { if (token) await apiRequest('/auth/logout', { method: 'POST', token }) } finally { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY); setUser(null); setToken(null) } }
+  const signOut = async () => { try { if (token && !localAuth) await apiRequest('/auth/logout', { method: 'POST', token }) } finally { localStorage.removeItem(LOCAL_AUTH_KEY); localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY); setLocalAuth(false); setUser(null); setToken(null) } }
   return <AuthContext.Provider value={{ user, ready, authenticated: Boolean(token && user), signIn, register, signOut }}>{children}</AuthContext.Provider>
 }
 function useAuth() { return useContext(AuthContext) }
@@ -53,10 +72,11 @@ function AuthLayout({ eyebrow, title, text, children }) {
   return <main className="auth-page"><div className="auth-visual"><div className="visual-grid" /><div className="auth-orbit orbit-one" /><div className="auth-orbit orbit-two" /><div className="auth-signal"><Activity size={22} /><span>NOC / SECURE</span></div><div className="auth-visual-copy"><span className="status-dot" />Always-on infrastructure operations.</div></div><section className="auth-panel"><Link to="/login" className="brand"><span className="brand-mark"><span /></span><span>NOC <span className="brand-accent">Automation</span></span></Link><div className="auth-copy"><span className="auth-eyebrow">{eyebrow}</span><h1>{title}</h1><p>{text}</p></div>{children}<div className="auth-footer"><span>NOC Automation Operations Center</span><span>v2.4.0</span></div></section></main>
 }
 function Login() {
-  const { signIn } = useAuth(); const navigate = useNavigate(); const [email, setEmail] = useState('admin@nocautomation.com'); const [password, setPassword] = useState(''); const [error, setError] = useState(''); const [pending, setPending] = useState(false)
+  const { signIn } = useAuth(); const navigate = useNavigate(); const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [error, setError] = useState(''); const [pending, setPending] = useState(false)
   const submit = async event => { event.preventDefault(); setError(''); setPending(true); try { await signIn(email, password); navigate('/dashboard') } catch (requestError) { setError(requestError.message) } finally { setPending(false) } }
-  return <AuthLayout eyebrow="Welcome back" title={<>Your network.<br /><span>Always ready.</span></>} text="Sign in to monitor infrastructure, investigate incidents, and keep critical services available."><form className="auth-form" onSubmit={submit}><Field label="Work email" type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@company.com" required /><Field label="Password" type="password" value={password} onChange={event => setPassword(event.target.value)} placeholder="Enter your password" required /><div className="form-row"><label className="checkbox"><input type="checkbox" defaultChecked /> Remember me</label><Link to="/forgot-password">Forgot password?</Link></div>{error && <p className="form-error">{error}</p>}<button className="primary-button" type="submit" disabled={pending}>{pending ? 'Signing in...' : 'Sign in'} <Zap size={16} /></button><p className="switch-copy">New to NOC Automation? <Link to="/register">Create an account</Link></p></form></AuthLayout>
+  return <AuthLayout eyebrow="Welcome back" title={<>Your network.<br /><span>Always ready.</span></>} text="Sign in to monitor infrastructure, investigate incidents, and keep critical services available."><form className="auth-form" onSubmit={submit}><Field label="Work email" type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@company.com" required /><Field label="Password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} placeholder="Enter your password" required /><div className="form-row"><label className="checkbox"><input type="checkbox" defaultChecked /> Remember me</label><Link to="/forgot-password">Forgot password?</Link></div>{error && <p className="form-error">{error}</p>}<button className="primary-button" type="submit" disabled={pending}>{pending ? 'Signing in...' : 'Sign in'} <Zap size={16} /></button><p className="switch-copy">New to NOC Automation? <Link to="/register">Create an account</Link></p></form><DemoCredentials onSelect={(demoEmail, demoPassword) => { setEmail(demoEmail); setPassword(demoPassword); setError('') }} /></AuthLayout>
 }
+function DemoCredentials({ onSelect }) { const accounts = [['Admin', 'admin@nocautomation.com', 'Admin123!'], ['Operator', 'operator@nocautomation.com', 'Operator123!'], ['Viewer', 'viewer@nocautomation.com', 'Viewer123!']]; return <section className="demo-credentials"><div><span className="auth-eyebrow">Demo access</span><strong>Use a demo account</strong></div>{accounts.map(([role, email, password]) => <button type="button" key={role} onClick={() => onSelect(email, password)}><span className={`demo-role demo-${role.toLowerCase()}`}>{role.slice(0, 1)}</span><span><strong>{role}</strong><small>{email}</small></span><span className="demo-password">{password}</span></button>)}</section> }
 function Register() {
   const { register } = useAuth(); const navigate = useNavigate(); const [form, setForm] = useState({ name: '', email: '', password: '' }); const [error, setError] = useState(''); const [pending, setPending] = useState(false); const update = key => event => setForm({ ...form, [key]: event.target.value })
   const submit = async event => { event.preventDefault(); setError(''); setPending(true); try { await register(form.name || 'Operations User', form.email, form.password); navigate('/dashboard') } catch (requestError) { setError(requestError.message) } finally { setPending(false) } }
