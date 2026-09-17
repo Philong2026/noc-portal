@@ -5,6 +5,7 @@ const cors = require('cors')
 const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
 const pool = require('./db.cjs')
+const { getGrafanaSnapshot } = require('./grafanaService.cjs')
 
 const app = express()
 const port = Number(process.env.PORT || 3001)
@@ -12,6 +13,50 @@ const allowedRoles = new Set(['Admin', 'Operator', 'Viewer'])
 
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173' }))
 app.use(express.json())
+
+app.get('/api/dashboard', async (_req, res) => {
+  try {
+    const snapshot = await getGrafanaSnapshot()
+    console.log('[Grafana] /api/dashboard response', JSON.stringify(snapshot.dashboard).slice(0, 2000))
+    res.json(snapshot.dashboard)
+  } catch (error) {
+    console.error('Dashboard API error:', error)
+    res.json({ cpu: 'Data unavailable', ram: 'Data unavailable', disk: 'Data unavailable', traffic: 'Data unavailable', alerts: 'Data unavailable', devices: 'Data unavailable', servers: 'Data unavailable', availability: 'Data unavailable', securityScore: 'Data unavailable', message: 'Data unavailable' })
+  }
+})
+
+app.get('/api/monitoring', async (_req, res) => {
+  try {
+    const snapshot = await getGrafanaSnapshot()
+    console.log('[Grafana] /api/monitoring response', JSON.stringify(snapshot.monitoring).slice(0, 2000))
+    res.json(snapshot.monitoring)
+  } catch (error) {
+    console.error('Monitoring API error:', error)
+    res.json({ devices: [], healthStatus: 'Data unavailable', reachability: 'Data unavailable', performanceMetrics: { latency: 'Data unavailable', cpu: 'Data unavailable', memory: 'Data unavailable', disk: 'Data unavailable' }, message: 'Data unavailable' })
+  }
+})
+
+app.get('/api/alerts', async (_req, res) => {
+  try {
+    const snapshot = await getGrafanaSnapshot()
+    console.log('[Grafana] /api/alerts response', JSON.stringify(snapshot.alerts).slice(0, 2000))
+    res.json(snapshot.alerts)
+  } catch (error) {
+    console.error('Alerts API error:', error)
+    res.json({ summary: { active: 'Data unavailable', critical: 'Data unavailable', warning: 'Data unavailable', information: 'Data unavailable' }, items: [], message: 'Data unavailable' })
+  }
+})
+
+app.get('/api/security', async (_req, res) => {
+  try {
+    const snapshot = await getGrafanaSnapshot()
+    console.log('[Grafana] /api/security response', JSON.stringify(snapshot.security).slice(0, 2000))
+    res.json(snapshot.security)
+  } catch (error) {
+    console.error('Security API error:', error)
+    res.json({ securityScore: 'Data unavailable', activeThreats: 'Data unavailable', vulnerabilityCount: 'Data unavailable', securityHealth: 'Data unavailable', events: [], message: 'Data unavailable' })
+  }
+})
 
 function createToken(user) {
   return jwt.sign({ sub: user.id, role: user.role, email: user.email }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '8h' })

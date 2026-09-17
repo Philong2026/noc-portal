@@ -20,5 +20,5 @@ export const mockApi = {
   getDevices: () => wait([...devices]),
   getAlerts: () => wait([...alerts]),
   getReports: () => wait({ daily: 99.98, weekly: 99.96, monthly: 99.98, incidents: 38 }),
-  getSettings: () => wait({ profile: { name: 'Operations User', email: 'admin@nocautomation.com', role: 'Admin' }, notifications: { critical: true, digest: true, maintenance: false }, roles: ['Admin', 'Operator', 'Viewer'] }),
+  getSettings: () => wait({ profile: { name: 'NOC SAO VÀNG', username: 'svtelecom', role: 'Administrator' }, notifications: { critical: true, digest: true, maintenance: false }, roles: ['Administrator'] }),
 }

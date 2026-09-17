@@ -7,11 +7,10 @@ import { mockApi } from './mockApi'
 const TOKEN_KEY = 'noc-automation-token'
 const USER_KEY = 'noc-automation-user'
 const LOCAL_AUTH_KEY = 'noc-automation-local-auth'
-const defaultDashboardData = { cpu: 42.8, ram: 68.4, disk: 71.2, traffic: '1.84 GB/s', alerts: 7, devices: 126, servers: 48 }
+const DATA_UNAVAILABLE = 'Data unavailable'
+const defaultDashboardData = { cpu: 'Data unavailable', ram: 'Data unavailable', disk: 'Data unavailable', traffic: 'Data unavailable', alerts: 'Data unavailable', devices: 'Data unavailable', servers: 'Data unavailable', availability: 'Data unavailable', securityScore: 'Data unavailable', lastUpdated: 'Data unavailable' }
 const demoAccounts = {
-  'admin@nocautomation.com': { password: 'Admin123!', name: 'NOC Administrator', role: 'Admin' },
-  'operator@nocautomation.com': { password: 'Operator123!', name: 'NOC Operator', role: 'Operator' },
-  'viewer@nocautomation.com': { password: 'Viewer123!', name: 'NOC Viewer', role: 'Viewer' },
+  svtelecom: { password: 'Admin123!', name: 'NOC SAO VÀNG', role: 'Administrator', username: 'svtelecom' },
 }
 const AuthContext = createContext(null)
 
@@ -23,6 +22,24 @@ const safeAsyncCall = async (operation, fallback) => {
     console.warn('Async operation failed:', error)
     return fallback
   }
+}
+
+const apiRequest = async (path, fallback) => {
+  try {
+    const response = await fetch(path, { headers: { Accept: 'application/json' } })
+    if (!response.ok) throw new Error(`Request failed with status ${response.status}`)
+    const payload = await response.json()
+    return payload && typeof payload === 'object' ? payload : fallback
+  } catch (error) {
+    console.warn(`API request failed for ${path}:`, error)
+    return fallback
+  }
+}
+
+const formatMetricValue = (value, suffix = '') => {
+  if (value === null || value === undefined || value === DATA_UNAVAILABLE) return DATA_UNAVAILABLE
+  if (typeof value === 'number') return `${value}${suffix}`
+  return String(value)
 }
 
 function AuthProvider({ children }) {
@@ -41,18 +58,18 @@ function AuthProvider({ children }) {
     return undefined
   }, [localAuth, token])
 
-  const signIn = async (email, password) => {
-    const normalizedEmail = String(email || '').trim().toLowerCase()
-    const account = demoAccounts[normalizedEmail]
+  const signIn = async (username, password) => {
+    const normalizedUsername = String(username || '').trim().toLowerCase()
+    const account = demoAccounts[normalizedUsername]
 
     if (!account || account.password !== password) {
-      const error = new Error('Invalid email or password.')
+      const error = new Error('Invalid username or password.')
       error.status = 401
       throw error
     }
 
-    const localUser = { id: `demo-${account.role.toLowerCase()}`, name: account.name, email: normalizedEmail, role: account.role }
-    const demoToken = `local-demo-${account.role.toLowerCase()}`
+    const localUser = { id: 'demo-administrator', name: account.name, email: account.username, username: account.username, role: account.role }
+    const demoToken = 'local-demo-administrator'
 
     localStorage.setItem(LOCAL_AUTH_KEY, 'true')
     localStorage.setItem(TOKEN_KEY, demoToken)
@@ -118,7 +135,7 @@ function App() {
 
   return <AuthProvider><Routes>
     <Route path="/login" element={<Login />} /><Route path="/register" element={<Register />} /><Route path="/forgot-password" element={<ForgotPassword />} />
-    <Route element={<ProtectedRoute />}><Route path="/dashboard" element={<Dashboard />} /><Route path="/monitoring" element={<MonitoringPage />} /><Route path="/alerts" element={<AlertsPage />} /><Route path="/reports" element={<ReportsPage />} /><Route path="/audit" element={<AuditLogPage />} /><Route path="/users" element={<UserManagementPage />} /><Route path="/settings" element={<SettingsPage />} /></Route>
+    <Route element={<ProtectedRoute />}><Route path="/dashboard" element={<Dashboard />} /><Route path="/monitoring" element={<MonitoringPage />} /><Route path="/alerts" element={<AlertsPage />} /><Route path="/assets" element={<AssetsPage />} /><Route path="/reports" element={<ReportsPage />} /><Route path="/audit" element={<AuditLogPage />} /><Route path="/users" element={<UserManagementPage />} /><Route path="/settings" element={<SettingsPage />} /><Route path="/profile" element={<ProfilePage />} /><Route path="/security" element={<SecurityPage />} /></Route>
     <Route path="*" element={<Navigate to="/dashboard" replace />} />
   </Routes></AuthProvider>
 }
@@ -128,11 +145,10 @@ function AuthLayout({ eyebrow, title, text, children }) {
   return <main className="auth-page"><div className="auth-visual"><div className="visual-grid" /><div className="auth-orbit orbit-one" /><div className="auth-orbit orbit-two" /><div className="auth-signal"><Activity size={22} /><span>NOC / SECURE</span></div><div className="auth-visual-copy"><span className="status-dot" />Always-on infrastructure operations.</div></div><section className="auth-panel"><Link to="/login" className="brand"><span className="brand-mark"><span /></span><span>NOC <span className="brand-accent">Automation</span></span></Link><div className="auth-copy"><span className="auth-eyebrow">{eyebrow}</span><h1>{title}</h1><p>{text}</p></div>{children}<div className="auth-footer"><span>NOC Automation Operations Center</span><span>v2.4.0</span></div></section></main>
 }
 function Login() {
-  const { signIn } = useAuth(); const navigate = useNavigate(); const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [error, setError] = useState(''); const [pending, setPending] = useState(false)
-  const submit = async event => { event.preventDefault(); setError(''); setPending(true); try { await signIn(email, password); navigate('/dashboard') } catch (requestError) { setError(requestError.message) } finally { setPending(false) } }
-  return <AuthLayout eyebrow="Welcome back" title={<>Your network.<br /><span>Always ready.</span></>} text="Sign in to monitor infrastructure, investigate incidents, and keep critical services available."><form className="auth-form" onSubmit={submit}><Field label="Work email" type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@company.com" required /><Field label="Password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} placeholder="Enter your password" required /><div className="form-row"><label className="checkbox"><input type="checkbox" defaultChecked /> Remember me</label><Link to="/forgot-password">Forgot password?</Link></div>{error && <p className="form-error">{error}</p>}<button className="primary-button" type="submit" disabled={pending}>{pending ? 'Signing in...' : 'Sign in'} <Zap size={16} /></button><p className="switch-copy">New to NOC Automation? <Link to="/register">Create an account</Link></p></form><DemoCredentials onSelect={(demoEmail, demoPassword) => { setEmail(demoEmail); setPassword(demoPassword); setError('') }} /></AuthLayout>
+  const { signIn } = useAuth(); const navigate = useNavigate(); const [username, setUsername] = useState(''); const [password, setPassword] = useState(''); const [error, setError] = useState(''); const [pending, setPending] = useState(false)
+  const submit = async event => { event.preventDefault(); setError(''); setPending(true); try { await signIn(username, password); navigate('/dashboard') } catch (requestError) { setError(requestError.message) } finally { setPending(false) } }
+  return <AuthLayout eyebrow="Welcome back" title={<>Your network.<br /><span>Always ready.</span></>} text="Sign in to monitor infrastructure, investigate incidents, and keep critical services available."><form className="auth-form" onSubmit={submit}><Field label="Username" type="text" autoComplete="username" value={username} onChange={event => setUsername(event.target.value)} placeholder="svtelecom" required /><Field label="Password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} placeholder="Enter your password" required /><div className="form-row"><label className="checkbox"><input type="checkbox" defaultChecked /> Remember me</label><Link to="/forgot-password">Forgot password?</Link></div>{error && <p className="form-error">{error}</p>}<button className="primary-button" type="submit" disabled={pending}>{pending ? 'Signing in...' : 'Sign in'} <Zap size={16} /></button><p className="switch-copy">New to NOC Automation? <Link to="/register">Create an account</Link></p></form></AuthLayout>
 }
-function DemoCredentials({ onSelect }) { const accounts = [['Admin', 'admin@nocautomation.com', 'Admin123!'], ['Operator', 'operator@nocautomation.com', 'Operator123!'], ['Viewer', 'viewer@nocautomation.com', 'Viewer123!']]; return <section className="demo-credentials"><div><span className="auth-eyebrow">Demo access</span><strong>Use a demo account</strong></div>{accounts.map(([role, email, password]) => <button type="button" key={role} onClick={() => onSelect(email, password)}><span className={`demo-role demo-${role.toLowerCase()}`}>{role.slice(0, 1)}</span><span><strong>{role}</strong><small>{email}</small></span><span className="demo-password">{password}</span></button>)}</section> }
 function Register() {
   const { register } = useAuth(); const navigate = useNavigate(); const [form, setForm] = useState({ name: '', email: '', password: '' }); const [error, setError] = useState(''); const [pending, setPending] = useState(false); const update = key => event => setForm({ ...form, [key]: event.target.value })
   const submit = async event => { event.preventDefault(); setError(''); setPending(true); try { await register(form.name || 'Operations User', form.email, form.password); navigate('/dashboard') } catch (requestError) { setError(requestError.message) } finally { setPending(false) } }
@@ -146,40 +162,89 @@ function Field({ label, ...props }) { return <label className="field">{label}<in
 function RoleSelect({ value, onChange }) { return <label className="field">Workspace role<select value={value} onChange={onChange}><option>Admin</option><option>Operator</option><option>Viewer</option></select></label> }
 
 function AppShell() {
-  const [open, setOpen] = useState(false); const [darkMode, setDarkMode] = useState(() => localStorage.getItem('noc-automation-theme') !== 'light'); const { user, signOut } = useAuth(); const location = useLocation()
+  const [open, setOpen] = useState(false); const [darkMode, setDarkMode] = useState(() => localStorage.getItem('noc-automation-theme') !== 'light'); const [notificationOpen, setNotificationOpen] = useState(false); const [profileMenuOpen, setProfileMenuOpen] = useState(false); const [notificationFilter, setNotificationFilter] = useState('All'); const [notifications, setNotifications] = useState([
+    { id: 1, title: 'Database replication lag', category: 'Alert Notifications', detail: 'Finance DB cluster is six seconds behind target. Investigate the failover path.', time: '2 min ago', unread: true, owner: 'Jordan Miller', type: 'Escalation' },
+    { id: 2, title: 'Storage expansion scheduled', category: 'Assignment', detail: 'Priya Shah has been assigned to complete the cold-storage capacity review.', time: '18 min ago', unread: true, owner: 'Priya Shah', type: 'Assignment' },
+    { id: 3, title: 'Security review requested', category: 'Mentions', detail: '@admin Please confirm the firewall policy approval before 18:00 UTC.', time: '42 min ago', unread: false, owner: 'Samira Khan', type: 'Mentions' },
+    { id: 4, title: 'High latency burst on API edge', category: 'Alert Notifications', detail: 'Customer portal latency exceeded the 250 ms threshold for the last six minutes.', time: '1 hr ago', unread: true, owner: 'Diego Ruiz', type: 'Escalation' },
+    { id: 5, title: 'Traffic shift approved', category: 'Assignment', detail: 'Operations approved the cutover plan and routing changes for the regional failover.', time: '2 hrs ago', unread: false, owner: 'NOC Team', type: 'Assignment' },
+  ]); const { user, signOut } = useAuth(); const location = useLocation(); const navigate = useNavigate(); const displayName = user?.name || 'NOC SAO VÀNG'; const displayRole = user?.role || 'Administrator'; const displayUsername = user?.username || 'svtelecom'
   useEffect(() => { window.scrollTo(0, 0); setOpen(false) }, [location.pathname])
+  useEffect(() => {
+    const handlePointerDown = (event) => {
+      if (!event.target.closest('.user-menu-wrap')) {
+        setProfileMenuOpen(false)
+      }
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setProfileMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
   const toggleTheme = () => { const next = !darkMode; setDarkMode(next); localStorage.setItem('noc-automation-theme', next ? 'dark' : 'light') }
+  const filteredNotifications = notifications.filter((item) => notificationFilter === 'All' || item.category === notificationFilter)
+  const unreadCount = notifications.filter((item) => item.unread).length
+  const markAllRead = () => setNotifications((current) => current.map((item) => ({ ...item, unread: false })))
+  const markItemRead = (id) => setNotifications((current) => current.map((item) => item.id === id ? { ...item, unread: false } : item))
     const renderProtectedPage = () => {
       switch (location.pathname) {
         case '/monitoring': return <MonitoringPage />
         case '/alerts': return <AlertsPage />
+        case '/assets': return <AssetsPage />
         case '/reports': return <ReportsPage />
         case '/audit': return <AuditLogPage />
         case '/users': return <UserManagementPage />
         case '/settings': return <SettingsPage />
+        case '/profile': return <ProfilePage />
+        case '/security': return <SecurityPage />
         case '/dashboard':
         default: return <Dashboard />
       }
     }
 
-    return <div className={`app-shell ${darkMode ? 'dark-mode' : ''}`}><aside className={`sidebar ${open ? 'is-open' : ''}`}><div className="sidebar-top"><Link to="/dashboard" className="brand brand-light"><span className="brand-mark"><span /></span><span>NOC <span className="brand-accent">Automation</span></span></Link><button className="close-menu" onClick={() => setOpen(false)} aria-label="Close navigation"><X size={20} /></button></div><div className="workspace-switcher"><span className="workspace-icon"><Network size={15} /></span><span><small>WORKSPACE</small><strong>Enterprise Operations</strong></span><ChevronDown size={16} /></div><nav className="sidebar-nav"><span className="nav-label">Monitor</span><NavLink to="/dashboard" className={({ isActive }) => isActive ? 'active' : ''}><LayoutDashboard size={17} />Dashboard</NavLink><NavLink to="/monitoring" className={({ isActive }) => isActive ? 'active' : ''}><Activity size={17} />Monitoring</NavLink><NavLink to="/alerts" className={({ isActive }) => isActive ? 'active' : ''}><Bell size={17} />Alerts<span className="nav-count alert">7</span></NavLink><span className="nav-label">Analyze</span><NavLink to="/reports" className={({ isActive }) => isActive ? 'active' : ''}><Database size={17} />Reports</NavLink><NavLink to="/audit" className={({ isActive }) => isActive ? 'active' : ''}><FileText size={17} />Audit Log</NavLink><span className="nav-label">System</span><NavLink to="/users" className={({ isActive }) => isActive ? 'active' : ''}><Users size={17} />User Management</NavLink><NavLink to="/settings" className={({ isActive }) => isActive ? 'active' : ''}><Settings size={17} />Settings</NavLink></nav><div className="sidebar-bottom"><div className="support-card"><ShieldCheck size={18} /><div><strong>All systems protected</strong><span>Last checked 2 min ago</span></div></div><button className="signout" onClick={signOut}><LogOut size={16} />Sign out</button></div></aside><div className="main-area"><header className="topbar"><button className="mobile-menu" onClick={() => setOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><div className="topbar-search"><Search size={17} /><input placeholder="Search infrastructure..." /></div><div className="topbar-actions"><button className="icon-button" onClick={toggleTheme} aria-label={darkMode ? 'Use light mode' : 'Use dark mode'}>{darkMode ? <Sun size={18} /> : <Moon size={18} />}</button><button className="icon-button" aria-label="Notifications"><Bell size={18} /><span /></button><div className="user-menu"><span className="avatar">{(user?.name || 'OP').slice(0, 2).toUpperCase()}</span><div><strong>{user?.name || 'Operator'}</strong><small>{user?.role || 'Operator'}</small></div><ChevronDown size={15} /></div></div></header><main className="dashboard-main">{renderProtectedPage()}</main></div>{open && <button className="mobile-scrim" onClick={() => setOpen(false)} aria-label="Close navigation overlay" />}</div>
+    const handleSignOut = async () => {
+      setProfileMenuOpen(false)
+      await signOut()
+      navigate('/login')
+    }
+
+    const profileItems = [
+      { label: 'My Profile', href: '/profile' },
+      { label: 'Preferences', href: '#', action: 'preferences' },
+      { label: 'Security Settings', href: '#', action: 'security' },
+      { label: 'Notification Preferences', href: '#', action: 'notifications' },
+    ]
+
+    return <div className={`app-shell ${darkMode ? 'dark-mode' : ''}`}><aside className={`sidebar ${open ? 'is-open' : ''}`}><div className="sidebar-top"><Link to="/dashboard" className="brand brand-light"><span className="brand-mark"><span /></span><span>NOC <span className="brand-accent">Automation</span></span></Link><button className="close-menu" onClick={() => setOpen(false)} aria-label="Close navigation"><X size={20} /></button></div><div className="workspace-switcher"><span className="workspace-icon"><Network size={15} /></span><span><small>WORKSPACE</small><strong>Enterprise Operations</strong></span><ChevronDown size={16} /></div><nav className="sidebar-nav"><span className="nav-label">Monitor</span><NavLink to="/dashboard" className={({ isActive }) => isActive ? 'active' : ''}><LayoutDashboard size={17} />Dashboard</NavLink><NavLink to="/monitoring" className={({ isActive }) => isActive ? 'active' : ''}><Activity size={17} />Monitoring</NavLink><NavLink to="/alerts" className={({ isActive }) => isActive ? 'active' : ''}><Bell size={17} />Alerts<span className="nav-count alert">7</span></NavLink><NavLink to="/assets" className={({ isActive }) => isActive ? 'active' : ''}><Server size={17} />Assets</NavLink><span className="nav-label">Analyze</span><NavLink to="/reports" className={({ isActive }) => isActive ? 'active' : ''}><Database size={17} />Reports</NavLink><NavLink to="/audit" className={({ isActive }) => isActive ? 'active' : ''}><FileText size={17} />Audit Log</NavLink><span className="nav-label">System</span><NavLink to="/users" className={({ isActive }) => isActive ? 'active' : ''}><Users size={17} />User Management</NavLink><NavLink to="/settings" className={({ isActive }) => isActive ? 'active' : ''}><Settings size={17} />Settings</NavLink></nav><div className="sidebar-bottom"><Link to="/security" className="support-card" aria-label="Open Security Center"><ShieldCheck size={18} /><div><strong>All systems protected</strong><span>Last checked 2 min ago</span></div></Link><button className="signout" onClick={handleSignOut}><LogOut size={16} />Sign out</button></div></aside><div className="main-area"><header className="topbar"><button className="mobile-menu" onClick={() => setOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><div className="topbar-search"><Search size={17} /><input placeholder="Search infrastructure..." /></div><div className="topbar-actions"><button className="icon-button" onClick={toggleTheme} aria-label={darkMode ? 'Use light mode' : 'Use dark mode'}>{darkMode ? <Sun size={18} /> : <Moon size={18} />}</button><div className="notification-wrap"><button className="icon-button notification-button" onClick={() => setNotificationOpen((openState) => !openState)} aria-label="Notifications"><Bell size={18} />{unreadCount > 0 && <span className="notification-badge">{unreadCount}</span>}</button>{notificationOpen && <aside className="notification-panel"><div className="notification-header"><div><span className="auth-eyebrow">Center</span><h3>Notifications</h3></div><button type="button" className="outline-button small-button" onClick={markAllRead}>Mark all read</button></div><div className="notification-filters"><button type="button" className={notificationFilter === 'All' ? 'active' : ''} onClick={() => setNotificationFilter('All')}>All</button><button type="button" className={notificationFilter === 'Alert Notifications' ? 'active' : ''} onClick={() => setNotificationFilter('Alert Notifications')}>Alerts</button><button type="button" className={notificationFilter === 'Assignment' ? 'active' : ''} onClick={() => setNotificationFilter('Assignment')}>Assignments</button><button type="button" className={notificationFilter === 'Mentions' ? 'active' : ''} onClick={() => setNotificationFilter('Mentions')}>Mentions</button></div><div className="notification-list">{filteredNotifications.map((item) => <button type="button" key={item.id} className={`notification-item ${item.unread ? 'unread' : ''}`} onClick={() => markItemRead(item.id)}><div className="notification-icon"><Bell size={14} /></div><div className="notification-copy"><div className="notification-row"><strong>{item.title}</strong><span className="notification-type">{item.type}</span></div><small>{item.category}</small><p>{item.detail}</p><div className="notification-meta"><span>{item.owner}</span><time>{item.time}</time></div></div></button>)}</div></aside>}</div><div className="user-menu-wrap"><button type="button" className="user-menu" onClick={() => setProfileMenuOpen((current) => !current)} aria-label="Open user profile menu" aria-expanded={profileMenuOpen} aria-haspopup="menu"><span className="avatar">{displayName.slice(0, 2).toUpperCase()}</span><div><strong>{displayName}</strong><small>{displayRole}</small><small className="profile-username">@{displayUsername}</small></div><ChevronDown size={15} /></button>{profileMenuOpen && <div className="profile-menu" role="menu"><button type="button" className="profile-menu-item" onClick={() => { setProfileMenuOpen(false); navigate('/profile') }} role="menuitem"><span>My Profile</span></button>{profileItems.filter((item) => item.label !== 'My Profile').map((item) => <button key={item.label} type="button" className="profile-menu-item" onClick={() => { setProfileMenuOpen(false); if (item.href !== '#') navigate(item.href) }} role="menuitem"><span>{item.label}</span></button>)}<button type="button" className="profile-menu-item danger" onClick={handleSignOut} role="menuitem"><span>Sign Out</span></button></div>}</div></div></header><main className="dashboard-main">{renderProtectedPage()}</main></div>{open && <button className="mobile-scrim" onClick={() => setOpen(false)} aria-label="Close navigation overlay" />}</div>
   }
 
-  const metrics = [
-    { label: 'CPU usage', value: '42.8%', detail: 'across monitored hosts', icon: Cpu, tone: 'cyan', trend: '-8.4%' },
-    { label: 'RAM usage', value: '68.4%', detail: 'of allocated capacity', icon: Database, tone: 'blue', trend: '+2.1%' },
-    { label: 'Disk usage', value: '71.2%', detail: 'average utilization', icon: HardDrive, tone: 'amber', trend: '-1.6%' },
-    { label: 'Network traffic', value: '1.84 GB/s', detail: 'across monitored links', icon: Network, tone: 'green', trend: '+6.8%' },
-    { label: 'Active alerts', value: '7', detail: '3 require attention', icon: Bell, tone: 'amber', trend: '-12%' },
-    { label: 'Device count', value: '126', detail: 'networked devices', icon: Network, tone: 'cyan', trend: '+8' },
-    { label: 'Server count', value: '48', detail: 'managed servers', icon: Server, tone: 'green', trend: '+2' },
-  ]
+function ProfilePage() {
+  const { user } = useAuth()
+  const profileName = user?.name || 'NOC SAO VÀNG'
+  const profileUsername = user?.username || 'svtelecom'
+  const profileRole = user?.role || 'Administrator'
+
+  return <div className="dashboard"><PageHeader eyebrow="Profile" title={<>Your profile<br /><span>and workspace preferences.</span></>} text="Review your identity, access scope, and preferred operational settings." action={<button className="outline-button" type="button">Edit profile</button>} /><section className="dashboard-card settings-panel"><div className="user-profile-layout"><div className="user-profile-card"><div className="user-avatar-large">{profileName.slice(0, 2).toUpperCase()}</div><div><span className="auth-eyebrow">Account</span><h2>{profileName}</h2><p>@{profileUsername}</p><span className="status-pill green">{profileRole}</span></div></div><div className="profile-details"><div className="settings-field"><span>Display name</span><input value={profileName} readOnly /></div><div className="settings-field"><span>Username</span><input value={profileUsername} readOnly /></div><div className="settings-field"><span>Role</span><input value={profileRole} readOnly /></div></div></div><div className="profile-actions"><button className="outline-button" type="button">Preferences</button><button className="outline-button" type="button">Security Settings</button><button className="outline-button" type="button">Notification Preferences</button></div></section></div>
+}
+
 function Dashboard() {
   const location = useLocation(); const [dashboardData, setDashboardData] = useState(defaultDashboardData); const [refreshing, setRefreshing] = useState(false)
   const refresh = async () => {
     setRefreshing(true)
-    const nextData = await safeAsyncCall(() => mockApi.getDashboard(), defaultDashboardData)
-    setDashboardData(nextData || defaultDashboardData)
+    const nextData = await safeAsyncCall(() => apiRequest('/api/dashboard', defaultDashboardData), defaultDashboardData)
+    const normalizedData = { ...defaultDashboardData, ...(nextData || defaultDashboardData), lastUpdated: (nextData && nextData.lastUpdated) || new Date().toISOString() }
+    console.log('[Dashboard] Grafana dashboard payload', normalizedData)
+    setDashboardData(normalizedData)
     setRefreshing(false)
   }
   useEffect(() => { refresh() }, [])
@@ -189,17 +254,46 @@ function Dashboard() {
   if (location.pathname === '/audit') return <AuditLogPage />
   if (location.pathname === '/settings') return <SettingsPage />
 
-  const liveValues = { 'CPU usage': `${dashboardData.cpu}%`, 'RAM usage': `${dashboardData.ram}%`, 'Disk usage': `${dashboardData.disk}%`, 'Network traffic': dashboardData.traffic, 'Active alerts': dashboardData.alerts, 'Device count': dashboardData.devices, 'Server count': dashboardData.servers }
-  const performanceSeries = [
-    { label: 'CPU Trend', value: `${dashboardData.cpu}%`, detail: 'Across 12 clusters', color: '#28d8c0', data: [{ name: 'Jan', value: 32 }, { name: 'Feb', value: 36 }, { name: 'Mar', value: 33 }, { name: 'Apr', value: 41 }, { name: 'May', value: 49 }, { name: 'Jun', value: 45 }, { name: 'Jul', value: 52 }, { name: 'Aug', value: 57 }, { name: 'Sep', value: 59 }, { name: 'Oct', value: 63 }] },
-    { label: 'Memory Trend', value: `${dashboardData.ram}%`, detail: 'Committed capacity', color: '#6e9ee8', data: [{ name: 'Jan', value: 53 }, { name: 'Feb', value: 58 }, { name: 'Mar', value: 56 }, { name: 'Apr', value: 60 }, { name: 'May', value: 64 }, { name: 'Jun', value: 67 }, { name: 'Jul', value: 69 }, { name: 'Aug', value: 70 }, { name: 'Sep', value: 73 }, { name: 'Oct', value: 68 }] },
-    { label: 'Disk Trend', value: `${dashboardData.disk}%`, detail: 'Utilization baseline', color: '#e2a84d', data: [{ name: 'Jan', value: 44 }, { name: 'Feb', value: 48 }, { name: 'Mar', value: 47 }, { name: 'Apr', value: 55 }, { name: 'May', value: 60 }, { name: 'Jun', value: 63 }, { name: 'Jul', value: 66 }, { name: 'Aug', value: 71 }, { name: 'Sep', value: 72 }, { name: 'Oct', value: 74 }] },
-    { label: 'Network Traffic', value: dashboardData.traffic, detail: 'Peak ingress rate', color: '#43be92', data: [{ name: 'Jan', value: 1.1 }, { name: 'Feb', value: 1.3 }, { name: 'Mar', value: 1.5 }, { name: 'Apr', value: 1.8 }, { name: 'May', value: 1.7 }, { name: 'Jun', value: 2.1 }, { name: 'Jul', value: 1.9 }, { name: 'Aug', value: 2.3 }, { name: 'Sep', value: 2.2 }, { name: 'Oct', value: 2.6 }] },
-    { label: 'Alert Trend', value: `${dashboardData.alerts}`, detail: 'Operational noise', color: '#f06b68', data: [{ name: 'Jan', value: 5 }, { name: 'Feb', value: 7 }, { name: 'Mar', value: 6 }, { name: 'Apr', value: 8 }, { name: 'May', value: 9 }, { name: 'Jun', value: 7 }, { name: 'Jul', value: 6 }, { name: 'Aug', value: 8 }, { name: 'Sep', value: 7 }, { name: 'Oct', value: 6 }] },
-    { label: 'Availability Trend', value: '99.98%', detail: 'Service reliability', color: '#6e9ee8', data: [{ name: 'Jan', value: 99.68 }, { name: 'Feb', value: 99.74 }, { name: 'Mar', value: 99.82 }, { name: 'Apr', value: 99.87 }, { name: 'May', value: 99.91 }, { name: 'Jun', value: 99.9 }, { name: 'Jul', value: 99.94 }, { name: 'Aug', value: 99.96 }, { name: 'Sep', value: 99.98 }, { name: 'Oct', value: 99.98 }] },
+  const trafficValue = dashboardData.traffic && String(dashboardData.traffic) !== DATA_UNAVAILABLE ? dashboardData.traffic : 'Data unavailable'
+  const alertsValue = dashboardData.alerts && String(dashboardData.alerts) !== DATA_UNAVAILABLE ? dashboardData.alerts : 'Data unavailable'
+  const deviceValue = dashboardData.devices && String(dashboardData.devices) !== DATA_UNAVAILABLE ? dashboardData.devices : 'Data unavailable'
+  const availabilityValue = dashboardData.availability && String(dashboardData.availability) !== DATA_UNAVAILABLE ? dashboardData.availability : 'Data unavailable'
+  const securityScoreValue = dashboardData.securityScore && String(dashboardData.securityScore) !== DATA_UNAVAILABLE ? dashboardData.securityScore : 'Data unavailable'
+  const lastUpdatedValue = dashboardData.lastUpdated && String(dashboardData.lastUpdated) !== DATA_UNAVAILABLE ? new Date(dashboardData.lastUpdated).toLocaleString() : 'Data unavailable'
+
+  const metrics = [
+    { label: 'CPU Usage', value: formatMetricValue(dashboardData.cpu, '%'), detail: 'across monitored hosts', icon: Cpu, tone: 'cyan', trend: 'Live' },
+    { label: 'Memory Usage', value: formatMetricValue(dashboardData.ram, '%'), detail: 'of allocated capacity', icon: Database, tone: 'blue', trend: 'Live' },
+    { label: 'Disk Usage', value: formatMetricValue(dashboardData.disk, '%'), detail: 'average utilization', icon: HardDrive, tone: 'amber', trend: 'Live' },
+    { label: 'Network Traffic', value: trafficValue, detail: 'across monitored links', icon: Network, tone: 'green', trend: 'Live' },
+    { label: 'Device Count', value: deviceValue, detail: 'networked devices', icon: Network, tone: 'cyan', trend: 'Live' },
+    { label: 'Availability', value: availabilityValue, detail: 'service reliability', icon: ShieldCheck, tone: 'green', trend: 'Live' },
+    { label: 'Active Alerts', value: alertsValue, detail: 'current queue', icon: Bell, tone: 'amber', trend: 'Live' },
+    { label: 'Security Score', value: securityScoreValue, detail: 'security posture', icon: LockKeyhole, tone: 'blue', trend: 'Live' },
   ]
 
-  return <div className="dashboard"><div className="dashboard-heading"><div><span className="auth-eyebrow">Tuesday, September 16, 2026</span><h1>Good morning, <span>Operations.</span></h1><p>Here is the latest pulse across your enterprise environment.</p></div><button className="outline-button" onClick={refresh} disabled={refreshing}><Activity size={16} />{refreshing ? 'Refreshing...' : 'Live refresh'}</button></div><div className="metric-grid">{metrics.map(metric => <MetricCard key={metric.label} {...metric} value={liveValues[metric.label] || metric.value} />)}</div><div className="executive-layout"><section className="dashboard-card performance-panel"><CardHeader eyebrow="Performance intelligence" title="Operational trends" /><div className="chart-grid">{performanceSeries.map((series) => <TrendChart key={series.label} {...series} />)}</div></section><ExecutiveSummaryPanel /></div><AssetInventoryModule /><div className="dashboard-grid"><TopologyMap /><MonitoringTable /><AlertConsole /><ServerStatus /><NetworkMap /><MonitoringSummary /><PingStatus /><Alerts /></div><SuccessStories /><TeamSection /><ContactSection /></div>
+  const liveValues = {
+    'CPU Usage': formatMetricValue(dashboardData.cpu, '%'),
+    'Memory Usage': formatMetricValue(dashboardData.ram, '%'),
+    'Disk Usage': formatMetricValue(dashboardData.disk, '%'),
+    'Network Traffic': trafficValue,
+    'Device Count': deviceValue,
+    'Availability': availabilityValue,
+    'Active Alerts': alertsValue,
+    'Security Score': securityScoreValue,
+  }
+  console.log('[Dashboard] live Grafana widget values', liveValues)
+
+  const performanceSeries = [
+    { label: 'CPU Trend', value: formatMetricValue(dashboardData.cpu, '%'), detail: 'Across 12 clusters', color: '#28d8c0', data: [{ name: 'Jan', value: 32 }, { name: 'Feb', value: 36 }, { name: 'Mar', value: 33 }, { name: 'Apr', value: 41 }, { name: 'May', value: 49 }, { name: 'Jun', value: 45 }, { name: 'Jul', value: 52 }, { name: 'Aug', value: 57 }, { name: 'Sep', value: 59 }, { name: 'Oct', value: 63 }] },
+    { label: 'Memory Trend', value: formatMetricValue(dashboardData.ram, '%'), detail: 'Committed capacity', color: '#6e9ee8', data: [{ name: 'Jan', value: 53 }, { name: 'Feb', value: 58 }, { name: 'Mar', value: 56 }, { name: 'Apr', value: 60 }, { name: 'May', value: 64 }, { name: 'Jun', value: 67 }, { name: 'Jul', value: 69 }, { name: 'Aug', value: 70 }, { name: 'Sep', value: 73 }, { name: 'Oct', value: 68 }] },
+    { label: 'Disk Trend', value: formatMetricValue(dashboardData.disk, '%'), detail: 'Utilization baseline', color: '#e2a84d', data: [{ name: 'Jan', value: 44 }, { name: 'Feb', value: 48 }, { name: 'Mar', value: 47 }, { name: 'Apr', value: 55 }, { name: 'May', value: 60 }, { name: 'Jun', value: 63 }, { name: 'Jul', value: 66 }, { name: 'Aug', value: 71 }, { name: 'Sep', value: 72 }, { name: 'Oct', value: 74 }] },
+    { label: 'Network Traffic', value: trafficValue, detail: 'Peak ingress rate', color: '#43be92', data: [{ name: 'Jan', value: 1.1 }, { name: 'Feb', value: 1.3 }, { name: 'Mar', value: 1.5 }, { name: 'Apr', value: 1.8 }, { name: 'May', value: 1.7 }, { name: 'Jun', value: 2.1 }, { name: 'Jul', value: 1.9 }, { name: 'Aug', value: 2.3 }, { name: 'Sep', value: 2.2 }, { name: 'Oct', value: 2.6 }] },
+    { label: 'Alert Trend', value: String(alertsValue), detail: 'Operational noise', color: '#f06b68', data: [{ name: 'Jan', value: 5 }, { name: 'Feb', value: 7 }, { name: 'Mar', value: 6 }, { name: 'Apr', value: 8 }, { name: 'May', value: 9 }, { name: 'Jun', value: 7 }, { name: 'Jul', value: 6 }, { name: 'Aug', value: 8 }, { name: 'Sep', value: 7 }, { name: 'Oct', value: 6 }] },
+    { label: 'Availability Trend', value: availabilityValue, detail: 'Service reliability', color: '#6e9ee8', data: [{ name: 'Jan', value: 99.68 }, { name: 'Feb', value: 99.74 }, { name: 'Mar', value: 99.82 }, { name: 'Apr', value: 99.87 }, { name: 'May', value: 99.91 }, { name: 'Jun', value: 99.9 }, { name: 'Jul', value: 99.94 }, { name: 'Aug', value: 99.96 }, { name: 'Sep', value: 99.98 }, { name: 'Oct', value: 99.98 }] },
+  ]
+
+  return <div className="dashboard"><div className="dashboard-heading"><div><span className="auth-eyebrow">Last updated: {lastUpdatedValue}</span><h1>Good morning, <span>Operations.</span></h1><p>Here is the latest pulse across your enterprise environment.</p></div><button className="outline-button" onClick={refresh} disabled={refreshing}><Activity size={16} />{refreshing ? 'Refreshing...' : 'Live refresh'}</button></div><div className="metric-grid">{metrics.map(metric => <MetricCard key={metric.label} {...metric} value={liveValues[metric.label] || metric.value} />)}</div><div className="executive-layout"><section className="dashboard-card performance-panel"><CardHeader eyebrow="Performance intelligence" title="Operational trends" /><div className="chart-grid">{performanceSeries.map((series) => <TrendChart key={series.label} {...series} />)}</div></section><ExecutiveSummaryPanel availability={availabilityValue} securityScore={securityScoreValue} activeAlerts={alertsValue} /></div><AssetInventoryModule /><SLADashboardModule /><div className="dashboard-grid"><TopologyMap /><MonitoringTable /><AlertConsole /><ServerStatus /><NetworkMap /><MonitoringSummary /><PingStatus /><Alerts /></div><SuccessStories /><TeamSection /><ContactSection /></div>
 }
 
 function TrendChart({ label, value, detail, color, data }) {
@@ -208,14 +302,14 @@ function TrendChart({ label, value, detail, color, data }) {
   return <article className="trend-card"><div className="trend-header"><span>{label}</span><strong>{value}</strong></div><div className="trend-chart-shell"><ResponsiveContainer width="100%" height={110}><AreaChart data={data} margin={{ top: 8, right: 10, left: -14, bottom: 0 }}><defs><linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity="0.38" /><stop offset="100%" stopColor={color} stopOpacity="0.04" /></linearGradient></defs><CartesianGrid vertical={false} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 3" /><XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} /><YAxis tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} hide /><Tooltip contentStyle={{ backgroundColor: '#0d2436', border: '1px solid rgba(148,163,184,0.2)', borderRadius: 12, color: '#edf6fb' }} labelStyle={{ color: '#edf6fb' }} /><Legend wrapperStyle={{ fontSize: '10px', color: '#718190' }} /><Area type="monotone" dataKey="value" name={label} stroke={color} fill={`url(#${gradientId})`} strokeWidth={2.5} animationDuration={1000} animationEasing="ease-out" /></AreaChart></ResponsiveContainer></div><div className="trend-meta"><small>{detail}</small><span>{typeof data[data.length - 1].value === 'number' ? `${data[data.length - 1].value.toFixed(data[data.length - 1].value % 1 === 0 ? 0 : 2)}${label.includes('Traffic') ? ' GB/s' : label.includes('Availability') ? '%' : '%'}` : data[data.length - 1].value}</span></div></article>
 }
 
-function ExecutiveSummaryPanel() {
+function ExecutiveSummaryPanel({ availability, securityScore, activeAlerts }) {
   const summaryItems = [
-    { label: 'Availability', value: '99.98%', tone: 'green' },
-    { label: 'MTTR', value: '14 min', tone: 'amber' },
-    { label: 'Risk score', value: 'Low', tone: 'cyan' },
+    { label: 'Availability', value: availability || DATA_UNAVAILABLE, tone: 'green' },
+    { label: 'Active alerts', value: activeAlerts || DATA_UNAVAILABLE, tone: 'amber' },
+    { label: 'Security score', value: securityScore || DATA_UNAVAILABLE, tone: 'cyan' },
   ]
 
-  return <section className="dashboard-card executive-summary-panel"><CardHeader eyebrow="Executive summary" title="Business impact" /><div className="summary-capsule"><div><strong>96%</strong><span>Service coverage</span></div><span className="health-badge">Healthy</span></div><div className="executive-list">{summaryItems.map((item) => <div className="executive-stat" key={item.label}><span>{item.label}</span><strong className={item.tone}>{item.value}</strong></div>)}</div><div className="executive-note"><ShieldCheck size={15} /><p>Incident backlog is down 18% this week and customer-facing latency remains within SLA thresholds.</p></div></section>
+  return <section className="dashboard-card executive-summary-panel"><CardHeader eyebrow="Executive summary" title="Business impact" /><div className="summary-capsule"><div><strong>{availability || DATA_UNAVAILABLE}</strong><span>Service coverage</span></div><span className="health-badge">Healthy</span></div><div className="executive-list">{summaryItems.map((item) => <div className="executive-stat" key={item.label}><span>{item.label}</span><strong className={item.tone}>{item.value}</strong></div>)}</div><div className="executive-note"><ShieldCheck size={15} /><p>Incident backlog is down 18% this week and customer-facing latency remains within SLA thresholds.</p></div></section>
 }
 
 function TopologyMap() {
@@ -265,6 +359,42 @@ function AlertConsole() {
 
 function PageHeader({ eyebrow, title, text, action }) { return <div className="page-heading"><div><span className="auth-eyebrow">{eyebrow}</span><h1>{title}</h1><p>{text}</p></div>{action && (typeof action === 'string' ? <button className="outline-button">{action}</button> : action)}</div> }
 
+function SLADashboardModule() {
+  const kpis = [
+    { label: 'Monthly Availability', value: '99.98%', change: '+0.12%', detail: 'vs last month', tone: 'green' },
+    { label: 'MTTR', value: '14 min', change: '-3 min', detail: 'faster resolution', tone: 'amber' },
+    { label: 'MTBF', value: '342 hrs', change: '+48 hrs', detail: 'reliability trend', tone: 'cyan' },
+    { label: 'Incident Count', value: '27', change: '-9%', detail: 'this period', tone: 'blue' },
+    { label: 'Service Health', value: '96%', change: '+2 pts', detail: 'service coverage', tone: 'green' },
+  ]
+
+  const gaugeData = [
+    { label: 'API Platform', value: 99.8, target: 99.9, color: '#28d8c0' },
+    { label: 'Customer Portal', value: 99.6, target: 99.7, color: '#6e9ee8' },
+    { label: 'Database Core', value: 98.9, target: 99.5, color: '#e2a84d' },
+  ]
+
+  const trendData = [
+    { month: 'Jan', availability: 99.66, mttr: 19, incidents: 34 },
+    { month: 'Feb', availability: 99.72, mttr: 17, incidents: 31 },
+    { month: 'Mar', availability: 99.79, mttr: 16, incidents: 30 },
+    { month: 'Apr', availability: 99.84, mttr: 15, incidents: 28 },
+    { month: 'May', availability: 99.9, mttr: 14, incidents: 26 },
+    { month: 'Jun', availability: 99.98, mttr: 13, incidents: 24 },
+  ]
+
+  return <section className="dashboard-card sla-dashboard"><div className="card-header"><div><span className="auth-eyebrow">SLA performance</span><h2>Service assurance</h2></div><a href="#reports">View report</a></div><div className="sla-kpi-grid">{kpis.map((item) => <div key={item.label} className="sla-kpi-card"><span>{item.label}</span><strong>{item.value}</strong><div><b className={item.tone}>{item.change}</b><small>{item.detail}</small></div></div>)}</div><div className="sla-body"><div className="sla-gauges"><div className="sla-gauges-header"><h3>Service health</h3><span>Current threshold</span></div>{gaugeData.map((item) => <GaugeCard key={item.label} {...item} />)}</div><div className="sla-trend"><div className="sla-gauges-header"><h3>Monthly trends</h3><span>Last 6 months</span></div><ResponsiveContainer width="100%" height={210}><AreaChart data={trendData} margin={{ top: 12, right: 12, left: -20, bottom: 0 }}><defs><linearGradient id="sla-trend-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#28d8c0" stopOpacity="0.38" /><stop offset="100%" stopColor="#28d8c0" stopOpacity="0.04" /></linearGradient></defs><CartesianGrid vertical={false} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 3" /><XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} /><YAxis tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} domain={[99.5, 100]} /><Tooltip contentStyle={{ backgroundColor: '#0d2436', border: '1px solid rgba(148,163,184,0.2)', borderRadius: 12, color: '#edf6fb' }} /><Area type="monotone" dataKey="availability" name="Availability" stroke="#28d8c0" fill="url(#sla-trend-fill)" strokeWidth={2.5} /></AreaChart></ResponsiveContainer></div></div></section>
+}
+
+function GaugeCard({ label, value, target, color }) {
+  const radius = 34
+  const circumference = 2 * Math.PI * radius
+  const progress = Math.min(Math.max((value - 90) / 10, 0), 1)
+  const dash = circumference * progress
+
+  return <div className="sla-gauge-card"><div className="gauge-wrap"><svg viewBox="0 0 120 120" className="sla-gauge" aria-label={`${label} gauge`} role="img"><circle cx="60" cy="60" r={radius} fill="none" stroke="rgba(148,163,184,0.22)" strokeWidth="10" /><circle cx="60" cy="60" r={radius} fill="none" stroke={color} strokeWidth="10" strokeDasharray={`${dash} ${circumference}`} strokeLinecap="round" transform="rotate(-90 60 60)" /></svg><div className="gauge-value"><strong>{value.toFixed(1)}%</strong><span>{target.toFixed(1)}% target</span></div></div><div className="gauge-meta"><span>{label}</span><b>{value >= target ? 'On target' : 'Watchlist'}</b></div></div>
+}
+
 function ReportsPage() {
   const [report, setReport] = useState({ daily: 99.98, weekly: 99.96, monthly: 99.98, incidents: 38, sla: 99.9, availability: [99.74, 99.79, 99.82, 99.87, 99.94, 99.96, 99.98] })
 
@@ -293,14 +423,14 @@ function ReportsPage() {
 function ReportCard({ period, value, detail, onDownload }) { return <article className="report-card"><span className="auth-eyebrow">{period} report</span><strong>{value}</strong><p>{detail}</p><button className="outline-button" onClick={onDownload}>Export report <Database size={14} /></button></article> }
 function AuditLogPage() {
   const auditRows = [
-    { timestamp: '2026-09-17 06:02:14', username: 'admin@nocautomation.com', action: 'Login', resource: 'Portal access', result: 'Success' },
-    { timestamp: '2026-09-17 05:44:28', username: 'operator@nocautomation.com', action: 'Role Updated', resource: 'User: priya.shah@nocautomation.com', result: 'Success' },
-    { timestamp: '2026-09-17 05:16:10', username: 'viewer@nocautomation.com', action: 'Access Denied', resource: 'Firewall policy', result: 'Denied' },
-    { timestamp: '2026-09-17 04:58:32', username: 'admin@nocautomation.com', action: 'Password Reset', resource: 'User: leo.martins@nocautomation.com', result: 'Success' },
-    { timestamp: '2026-09-17 04:26:09', username: 'operator@nocautomation.com', action: 'Configuration Change', resource: 'Alert rule: Storage threshold', result: 'Success' },
-    { timestamp: '2026-09-17 03:54:41', username: 'viewer@nocautomation.com', action: 'Login Failed', resource: 'Portal access', result: 'Failed' },
-    { timestamp: '2026-09-17 03:33:18', username: 'admin@nocautomation.com', action: 'User Created', resource: 'User: samir.ali@nocautomation.com', result: 'Success' },
-    { timestamp: '2026-09-17 03:11:02', username: 'operator@nocautomation.com', action: 'Logout', resource: 'Portal access', result: 'Success' },
+    { timestamp: '2026-09-17 06:02:14', username: 'svtelecom', action: 'Login', resource: 'Portal access', result: 'Success' },
+    { timestamp: '2026-09-17 05:44:28', username: 'svtelecom', action: 'Role Updated', resource: 'Command center access', result: 'Success' },
+    { timestamp: '2026-09-17 05:16:10', username: 'svtelecom', action: 'Access Verified', resource: 'Firewall policy', result: 'Confirmed' },
+    { timestamp: '2026-09-17 04:58:32', username: 'svtelecom', action: 'Password Rotation', resource: 'Portal security', result: 'Success' },
+    { timestamp: '2026-09-17 04:26:09', username: 'svtelecom', action: 'Configuration Review', resource: 'Alert rule: Storage threshold', result: 'Success' },
+    { timestamp: '2026-09-17 03:54:41', username: 'svtelecom', action: 'Login Attempt', resource: 'Portal access', result: 'Verified' },
+    { timestamp: '2026-09-17 03:33:18', username: 'svtelecom', action: 'Policy Update', resource: 'Access governance', result: 'Success' },
+    { timestamp: '2026-09-17 03:11:02', username: 'svtelecom', action: 'Logout', resource: 'Portal access', result: 'Success' },
   ]
   const [query, setQuery] = useState('')
   const [actionFilter, setActionFilter] = useState('All')
@@ -317,45 +447,130 @@ function AuditLogPage() {
 }
 function PingStatus() { const locations = [['Chicago edge', '18 ms', 'green'], ['Frankfurt edge', '92 ms', 'green'], ['Singapore edge', '184 ms', 'amber']]; return <section className="dashboard-card ping-card"><CardHeader eyebrow="Connectivity" title="Ping status" action={{ label: 'View probes', href: '#monitoring' }} /><div className="ping-summary"><strong>99.97%</strong><span>average reachability</span></div><div className="ping-list">{locations.map(([name, latency, tone]) => <div key={name}><span className="server-status-dot" data-tone={tone} /><strong>{name}</strong><span>{latency}</span></div>)}</div></section> }
 function NetworkMap() { const nodes = [['Chicago', 'green', '18 ms', 'node-chicago'], ['Frankfurt', 'green', '92 ms', 'node-frankfurt'], ['Singapore', 'amber', '184 ms', 'node-singapore'], ['New York', 'green', '36 ms', 'node-new-york']]; return <section className="dashboard-card network-map"><CardHeader eyebrow="Global topology" title="Monitoring map" action={{ label: 'Open monitoring', href: '/monitoring' }} /><div className="map-canvas"><div className="map-grid" /><div className="map-route route-one" /><div className="map-route route-two" /><div className="map-core"><Network size={18} /><span>CORE</span></div>{nodes.map(([name, tone, ping, position]) => <div className={`map-node ${position}`} key={name}><span className={`map-dot ${tone}`} /><strong>{name}</strong><small>{ping}</small></div>)}</div><div className="map-footer"><span><i className="green-dot" />Operational</span><span><i className="amber-dot" />Degraded</span><span>126 endpoints</span></div></section> }
+const normalizeDeviceStatus = (value) => {
+  const normalized = String(value || '').trim().toLowerCase()
+
+  if (['operational', 'online'].includes(normalized)) return 'Online'
+  if (['warning', 'degraded'].includes(normalized)) return 'Warning'
+  if (['critical', 'fault', 'down'].includes(normalized)) return 'Critical'
+  if (['offline'].includes(normalized)) return 'Offline'
+  return 'Online'
+}
+
+const getDeviceStatusTone = (value) => {
+  if (value === 'Online') return 'green'
+  if (value === 'Warning') return 'amber'
+  if (value === 'Critical') return 'red'
+  return 'offline'
+}
+
+const getLastIncident = (device) => {
+  const defaultMap = {
+    'Production Web 01': 'TCP queue spike resolved 2h ago',
+    'SQL Core 02': 'Replication delay cleared 38m ago',
+    'Edge Router 12': 'WAN failover tested 1h ago',
+    'Operations File 04': 'Capacity threshold crossed 18m ago',
+    'VPN Gateway 03': 'Fallback route restored 54m ago',
+    'Application API 07': 'Traffic burst stabilized 1h ago',
+  }
+
+  return defaultMap[device?.name] || 'No recent incidents'
+}
+
 function MonitoringPage() {
   const [devices, setDevices] = useState([])
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('All')
   const [selected, setSelected] = useState(null)
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(true)
 
   useEffect(() => {
     const loadDevices = async () => {
-      const nextDevices = await safeAsyncCall(() => mockApi.getDevices(), [])
-      const safeList = Array.isArray(nextDevices) ? nextDevices : []
-      setDevices(safeList)
-      if (safeList[0]) {
-        setSelected(safeList[0])
+      const nextPayload = await safeAsyncCall(() => apiRequest('/api/monitoring', { devices: [] }), { devices: [] })
+      const rawDevices = Array.isArray(nextPayload?.devices) ? nextPayload.devices : Array.isArray(nextPayload) ? nextPayload : []
+      const normalizedDevices = rawDevices.map((device) => ({
+        ...device,
+        status: normalizeDeviceStatus(device.status),
+        healthScore: typeof device.healthScore === 'number' ? device.healthScore : Math.max(0, Math.min(100, 100 - Math.round(((device.cpu || 0) + (device.ram || 0) + (device.disk || 0)) / 3))),
+        lastIncident: device.lastIncident || getLastIncident(device),
+      }))
+
+      setDevices(normalizedDevices)
+      if (normalizedDevices[0]) {
+        setSelected(normalizedDevices[0])
         setDrawerOpen(true)
       }
     }
+
     loadDevices()
   }, [])
 
-  const filtered = devices.filter(device => (status === 'All' || device.status === status) && `${device.name} ${device.id} ${device.type} ${device.location}`.toLowerCase().includes(query.toLowerCase()))
+  const filtered = devices.filter((device) => {
+    const matchesStatus = status === 'All' || device.status === status
+    const haystack = `${device.name} ${device.ip} ${device.type} ${device.location}`.toLowerCase()
+    const matchesQuery = haystack.includes(query.toLowerCase())
+    return matchesStatus && matchesQuery
+  })
+
+  const selectedDevice = filtered.find((device) => device.id === selected?.id) || filtered[0] || selected || null
+
+  const responseTrend = (selectedDevice ? [
+    { name: '00:00', value: Math.max(10, (selectedDevice.ping || 18) - 7) },
+    { name: '00:15', value: Math.max(10, (selectedDevice.ping || 18) - 3) },
+    { name: '00:30', value: selectedDevice.ping || 18 },
+    { name: '00:45', value: Math.max(12, (selectedDevice.ping || 18) + 4) },
+    { name: '01:00', value: Math.max(12, (selectedDevice.ping || 18) + 2) },
+  ] : [
+    { name: '00:00', value: 11 },
+    { name: '00:15', value: 14 },
+    { name: '00:30', value: 18 },
+    { name: '00:45', value: 16 },
+    { name: '01:00', value: 19 },
+  ])
+
+  const packetLossTrend = (selectedDevice ? [
+    { name: '00:00', value: Math.max(0.1, ((selectedDevice.cpu || 38) / 100) * 1.8) },
+    { name: '00:15', value: Math.max(0.1, ((selectedDevice.cpu || 38) / 100) * 2.4) },
+    { name: '00:30', value: Math.max(0.1, ((selectedDevice.ram || 61) / 100) * 2.2) },
+    { name: '00:45', value: Math.max(0.15, ((selectedDevice.cpu || 38) / 100) * 2.6) },
+    { name: '01:00', value: Math.max(0.15, ((selectedDevice.ram || 61) / 100) * 2.8) },
+  ] : [
+    { name: '00:00', value: 0.2 },
+    { name: '00:15', value: 0.4 },
+    { name: '00:30', value: 0.3 },
+    { name: '00:45', value: 0.5 },
+    { name: '01:00', value: 0.4 },
+  ])
 
   const exportCsv = () => {
     if (!filtered.length) return
-    const header = ['Asset', 'Type', 'Location', 'Status', 'CPU', 'Memory', 'Disk']
-    const rows = filtered.map(device => [device.id, device.type, device.location, device.status, `${device.cpu}%`, `${device.ram}%`, `${device.disk}%`])
-    const csv = [header, ...rows].map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\n')
+
+    const header = ['Device Name', 'IP Address', 'Type', 'Status', 'CPU', 'Memory', 'Latency', 'Last Check', 'Last Incident']
+    const rows = filtered.map((device) => [device.name, device.ip, device.type, device.status, `${device.cpu}%`, `${device.ram}%`, `${device.ping} ms`, device.lastCheck, device.lastIncident])
+    const csv = [header, ...rows].map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'noc-assets.csv'
+    link.download = 'noc-monitoring.csv'
     link.click()
     URL.revokeObjectURL(url)
   }
 
-  return <div className="dashboard"><PageHeader eyebrow="Monitoring" title={<>Know what is<br /><span>happening now.</span></>} text="Live health signals from every monitored server, device, and network path." action={<button className="outline-button" onClick={exportCsv}><Download size={15} />Export CSV</button>} /><div className="metric-grid">{metrics.slice(0, 4).map(metric => <MetricCard key={metric.label} {...metric} />)}</div><NetworkMap /><div className="monitoring-layout"><section className="dashboard-card monitor-table"><CardHeader eyebrow="Monitored assets" title={`${filtered.length} devices online`} /><div className="monitor-toolbar"><div className="device-search"><Search size={15} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search devices..." /></div><select value={status} onChange={event => setStatus(event.target.value)}><option>All</option><option>Operational</option><option>Degraded</option><option>Warning</option></select></div><div className="table-row table-head"><span>Asset</span><span>Type</span><span>Location</span><span>Health</span></div>{filtered.map(device => <button className={`table-row device-row ${selected?.id === device.id ? 'selected' : ''}`} key={device.id} onClick={() => { setSelected(device); setDrawerOpen(true) }}><strong>{device.id}</strong><span>{device.type}</span><span>{device.location}</span><span className={`status-pill ${device.status === 'Operational' ? 'green' : device.status === 'Warning' ? 'amber' : 'red'}`}>{device.status}</span></button>)}</section><aside className={`device-drawer ${drawerOpen ? 'open' : ''}`}><DeviceDetail device={selected} onClose={() => setDrawerOpen(false)} /></aside></div></div> }
-function DeviceDetail({ device, onClose }) { if (!device) return <section className="dashboard-card device-detail"><div className="device-detail-header"><span className="auth-eyebrow">Device detail</span>{onClose && <button className="close-button" onClick={onClose} aria-label="Close detail panel"><X size={16} /></button>}</div><h2>Select a device</h2><p>Choose an asset from the inventory to inspect health and connectivity.</p></section>; return <section className="dashboard-card device-detail"><div className="device-detail-header"><div><span className="auth-eyebrow">Device detail</span><h2>{device.name}</h2><p>{device.id} &middot; {device.ip}</p></div>{onClose && <button className="close-button" onClick={onClose} aria-label="Close detail panel"><X size={16} /></button>}</div><span className={`status-pill ${device.status === 'Operational' ? 'green' : device.status === 'Warning' ? 'amber' : 'red'}`}>{device.status}</span><div className="detail-stats"><span><strong>{device.uptime}</strong><small>Uptime</small></span><span><strong>{device.ping} ms</strong><small>Ping latency</small></span><span><strong>{device.lastCheck}</strong><small>Last check</small></span></div><div className="detail-bars"><UsageBar label="CPU" value={device.cpu} tone="cyan" /><UsageBar label="RAM" value={device.ram} tone="blue" /><UsageBar label="Disk" value={device.disk} tone="amber" /></div><button className="outline-button">Open device history</button></section> }
-function UsageBar({ label, value, tone }) { return <div className="usage-bar"><div><span>{label}</span><strong>{value}%</strong></div><i className={tone} style={{ width: `${value}%` }} /></div> }
+  return <div className="dashboard"><PageHeader eyebrow="Monitoring" title={<>Operational insight<br /><span>at a glance.</span></>} text="Live service health, device telemetry, and network quality across the enterprise estate." action={<button className="outline-button" type="button" onClick={exportCsv}><Download size={15} />Export CSV</button>} /><div className="monitoring-kpis"><div className="dashboard-card metric-card monitoring-kpi"><div className="metric-card-top"><span className="auth-eyebrow">Devices online</span></div><strong>{devices.filter((device) => device.status === 'Online').length}</strong><small>healthy endpoints</small></div><div className="dashboard-card metric-card monitoring-kpi"><div className="metric-card-top"><span className="auth-eyebrow">Warnings</span></div><strong>{devices.filter((device) => device.status === 'Warning').length}</strong><small>requires review</small></div><div className="dashboard-card metric-card monitoring-kpi"><div className="metric-card-top"><span className="auth-eyebrow">Critical</span></div><strong>{devices.filter((device) => device.status === 'Critical').length}</strong><small>action required</small></div><div className="dashboard-card metric-card monitoring-kpi"><div className="metric-card-top"><span className="auth-eyebrow">Avg health</span></div><strong>{Math.round(devices.reduce((total, device) => total + (device.healthScore || 0), 0) / (devices.length || 1))}%</strong><small>portfolio score</small></div></div><div className="monitoring-shell"><section className="dashboard-card monitor-table"><CardHeader eyebrow="Operational overview" title={`${filtered.length} monitored devices`} /><div className="monitor-toolbar"><div className="device-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by name, IP, or type..." /></div><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="All">All statuses</option><option value="Online">Online</option><option value="Warning">Warning</option><option value="Critical">Critical</option><option value="Offline">Offline</option></select></div><div className="monitoring-table-wrap"><div className="table-row table-head monitoring-row"><span>Device Name</span><span>IP Address</span><span>Type</span><span>Status</span><span>CPU</span><span>Memory</span><span>Latency</span><span>Last Check</span><span>Last Incident</span></div>{filtered.map((device) => <button className={`table-row device-row monitoring-row ${selectedDevice?.id === device.id ? 'selected' : ''}`} key={device.id} type="button" onClick={() => { setSelected(device); setDrawerOpen(true) }}><span className="device-name-cell"><strong>{device.name}</strong><small>{device.location}</small></span><span>{device.ip}</span><span>{device.type}</span><span><span className={`status-pill ${getDeviceStatusTone(device.status)}`}>{device.status}</span></span><span>{device.cpu}%</span><span>{device.ram}%</span><span>{device.ping} ms</span><span>{device.lastCheck}</span><span>{device.lastIncident}</span></button>)}</div></section><aside className={`device-drawer ${drawerOpen ? 'open' : ''}`}><DeviceDetail device={selectedDevice} onClose={() => setDrawerOpen(false)} /></aside></div><div className="monitoring-charts"><section className="dashboard-card monitoring-chart"><CardHeader eyebrow="Network quality" title="Response time" /><div className="monitor-chart-shell"><ResponsiveContainer width="100%" height={180}><AreaChart data={responseTrend} margin={{ top: 12, right: 12, left: -18, bottom: 0 }}><defs><linearGradient id="monitor-response-gradient" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#50b9ff" stopOpacity={0.38} /><stop offset="100%" stopColor="#50b9ff" stopOpacity={0.04} /></linearGradient></defs><CartesianGrid vertical={false} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 3" /><XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} /><YAxis tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} /><Tooltip contentStyle={{ backgroundColor: '#0d2436', border: '1px solid rgba(148,163,184,0.2)', borderRadius: 12, color: '#edf6fb' }} /><Area type="monotone" dataKey="value" stroke="#50b9ff" fill="url(#monitor-response-gradient)" strokeWidth={2.5} /></AreaChart></ResponsiveContainer></div></section><section className="dashboard-card monitoring-chart"><CardHeader eyebrow="Packet integrity" title="Packet loss" /><div className="monitor-chart-shell"><ResponsiveContainer width="100%" height={180}><BarChart data={packetLossTrend} margin={{ top: 12, right: 12, left: -18, bottom: 0 }}><CartesianGrid vertical={false} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 3" /><XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} /><YAxis tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} /><Tooltip contentStyle={{ backgroundColor: '#0d2436', border: '1px solid rgba(148,163,184,0.2)', borderRadius: 12, color: '#edf6fb' }} /><Bar dataKey="value" fill="#43be92" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer></div></section></div></div>
+}
+
+function DeviceDetail({ device, onClose }) {
+  if (!device) {
+    return <section className="dashboard-card device-detail"><div className="device-detail-header"><span className="auth-eyebrow">Device detail</span>{onClose && <button className="close-button" onClick={onClose} aria-label="Close detail panel"><X size={16} /></button>}</div><h2>Select a device</h2><p>Choose a monitored asset to inspect its health score, throughput, and recent incidents.</p></section>
+  }
+
+  const status = device.status || 'Online'
+  const tone = getDeviceStatusTone(status)
+  const healthScore = typeof device.healthScore === 'number' ? device.healthScore : 96
+
+  return <section className="dashboard-card device-detail"><div className="device-detail-header"><div><span className="auth-eyebrow">Device detail</span><h2>{device.name}</h2><p>{device.type} &middot; {device.ip}</p></div>{onClose && <button className="close-button" onClick={onClose} aria-label="Close detail panel"><X size={16} /></button>}</div><span className={`status-pill ${tone}`}>{status}</span><div className="detail-highlight"><div className="detail-stat"><span>Health score</span><strong>{healthScore}</strong></div><div className="detail-stat"><span>Uptime</span><strong>{device.uptime || '99.98%'}</strong></div><div className="detail-stat"><span>Latency</span><strong>{device.ping || 18} ms</strong></div></div><div className="detail-bars"><div className="usage-bar"><div><span>CPU</span><strong>{device.cpu || 0}%</strong></div><i className="cyan" style={{ width: `${device.cpu || 0}%` }} /></div><div className="usage-bar"><div><span>Memory</span><strong>{device.ram || 0}%</strong></div><i className="blue" style={{ width: `${device.ram || 0}%` }} /></div><div className="usage-bar"><div><span>Disk</span><strong>{device.disk || 0}%</strong></div><i className="amber" style={{ width: `${device.disk || 0}%` }} /></div></div><div className="detail-grid"><div><span>IP</span><strong>{device.ip}</strong></div><div><span>Location</span><strong>{device.location}</strong></div><div><span>Last check</span><strong>{device.lastCheck}</strong></div><div><span>Last incident</span><strong>{device.lastIncident}</strong></div></div><div className="detail-note"><span className="auth-eyebrow">Latest activity</span><p>{device.lastIncident || 'No recent incidents captured for this device.'}</p></div><button className="outline-button" type="button">Open device history</button></section>
+}
 function AlertsPageLegacy() { const [items, setItems] = useState([]); const [severity, setSeverity] = useState('All'); useEffect(() => { mockApi.getAlerts().then(setItems) }, []); const filtered = items.filter(item => severity === 'All' || item.severity === severity); return <div className="dashboard"><PageHeader eyebrow="Alerts" title={<>Resolve issues<br /><span>before impact.</span></>} text="Prioritized incidents and threshold events across the NOC estate." action="Acknowledge all" /><div className="alert-filters"><button className={severity === 'All' ? 'active' : ''} onClick={() => setSeverity('All')}>All <span>{items.length}</span></button>{['Critical', 'Warning', 'Information'].map(level => <button className={severity === level ? 'active' : ''} key={level} onClick={() => setSeverity(level)}>{level} <span>{items.filter(item => item.severity === level).length}</span></button>)}</div><div className="dashboard-grid"><section className="dashboard-card alerts-card"><CardHeader eyebrow="Current queue" title={`${filtered.length} active alerts`} /><div className="alert-list">{filtered.map(item => <div className="alert-row detailed-alert" key={item.id}><span className={`alert-icon ${item.severity.toLowerCase()}`}><AlertTriangle size={15} /></span><span><strong>{item.title}</strong><small>{item.device} &middot; {item.time}</small></span><span className="alert-state">{item.status}</span></div>)}</div></section><section className="dashboard-card alert-health"><CardHeader eyebrow="Response health" title="Alert performance" /><div className="alert-stat"><strong>14 min</strong><span>mean time to acknowledge</span></div><div className="alert-stat"><strong>96.4%</strong><span>alerts resolved within SLA</span></div><div className="summary-note"><Check size={15} /> Response targets are on track</div></section></div><section className="dashboard-card monitor-table"><CardHeader eyebrow="Alert history" title="Recent activity" /><div className="table-row table-head"><span>Incident</span><span>Severity</span><span>Device</span><span>Detail</span></div>{items.map(item => <div className="table-row" key={item.id}><strong>{item.title}</strong><span>{item.severity}</span><span>{item.device}</span><span>{item.detail}</span></div>)}</section></div> }
 function AlertsPage() {
   const defaultItems = [
@@ -417,10 +632,12 @@ function AlertsPage() {
   useEffect(() => {
     let active = true
 
-    mockApi.getAlerts().then((data) => {
-      if (!active || !Array.isArray(data) || !data.length) return
-      setItems(data)
-      setSelectedId(data[0].id)
+    apiRequest('/api/alerts', { items: defaultItems }).then((payload) => {
+      if (!active) return
+      const nextItems = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload) ? payload : defaultItems
+      if (!nextItems.length) return
+      setItems(nextItems)
+      setSelectedId(nextItems[0].id)
     })
 
     return () => {
@@ -523,6 +740,134 @@ function UserManagementPage() {
 
   return <div className="dashboard"><PageHeader eyebrow="User management" title={<>Control access across your<br /><span>operations teams.</span></>} text="Manage users, roles, and permissions from a single administrative workspace." action={<button className="outline-button" type="button">Invite user</button>} /><section className="dashboard-card settings-panel"><div className="settings-tabs">{['Users', 'Roles', 'Permissions'].map((item) => <button key={item} type="button" className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}</button>)}</div>{notice && <div className="success-message" style={{ marginBottom: 16 }}><span><Check size={18} /></span><div><strong>Update complete</strong><p>{notice}</p></div></div>}{tab === 'Users' && <div className="user-management-layout"><div className="user-form-card"><h3>Create user</h3><form onSubmit={createUser} className="user-create-form"><label className="settings-field"><span>Full name</span><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Jamie Patel" /></label><label className="settings-field"><span>Email</span><input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="jamie@nocautomation.com" /></label><label className="settings-field"><span>Role</span><select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option>Admin</option><option>Operator</option><option>Viewer</option></select></label><button className="primary-button" type="submit">Create user <UserPlus size={16} /></button></form></div><div className="user-table-card"><div className="audit-toolbar"><div className="device-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search users..." /></div></div><div className="table-wrap"><table className="monitoring-table"><thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last Login</th><th>Activity</th><th>Actions</th></tr></thead><tbody>{visibleUsers.map((user) => <tr key={user.id}><td><strong>{user.name}</strong><div className="table-subtle">{user.email}</div></td><td><select value={user.role} onChange={(event) => assignRole(user.id, event.target.value)}><option>Admin</option><option>Operator</option><option>Viewer</option></select></td><td><span className={`status-pill ${user.status === 'Active' ? 'green' : 'amber'}`}>{user.status}</span></td><td>{user.lastLogin}</td><td>{user.activity}</td><td><div className="user-actions"><button type="button" className="outline-button small-button" onClick={() => resetPassword(user.email)}>Reset</button><button type="button" className="outline-button small-button" onClick={() => disableUser(user.id)}>{user.status === 'Active' ? 'Disable' : 'Enable'}</button></div></td></tr>)}</tbody></table></div></div></div>}{tab === 'Roles' && <div className="grid-two-column"><div className="role-card-grid">{roles.map((role) => <div key={role.name} className="dashboard-card role-card"><span className={`role-badge role-${role.name === 'Admin' ? '0' : role.name === 'Operator' ? '1' : '2'}`}>{role.name.slice(0, 1)}</span><h3>{role.name}</h3><p>{role.description}</p><ul>{['Manage access', 'View reports', 'Audit trail'].map((item) => <li key={item}>{item}</li>)}</ul><strong>{role.count} users</strong></div>)}</div></div>}{tab === 'Permissions' && <div className="permission-grid">{permissions.map((group) => <div key={group.section} className="dashboard-card permission-card"><h3>{group.section}</h3><ul>{group.items.map((item) => <li key={item}><span>{item}</span><span className="status-pill green">Allowed</span></li>)}</ul></div>)}</div>}</section></div>
 }
+function AssetsPage() {
+  const assetList = [
+    { id: 'PRD-WEB-01', name: 'PRD-WEB-01', type: 'Server', vendor: 'Dell', model: 'PowerEdge R760', serial: 'DELL-RT-10784', location: 'Chicago', warranty: '2028-02-09', healthScore: 96, status: 'Operational', lifecycleStatus: 'Production', owner: 'Jordan Miller', maintenanceSchedule: 'Quarterly firmware check — next window 2026-10-02', maintenance: 'Firmware updated 12 days ago', notes: 'Customer portal nodes are balanced across two replicas with no active faults.' },
+    { id: 'RTR-EDGE-12', name: 'RTR-EDGE-12', type: 'Network Device', vendor: 'Cisco', model: 'ASR 1002-X', serial: 'CISCO-9K-20491', location: 'Frankfurt', warranty: '2027-11-14', healthScore: 92, status: 'Operational', lifecycleStatus: 'Production', owner: 'Priya Shah', maintenanceSchedule: 'Check routing table and failover validation — 2026-09-24', maintenance: 'Routing table refreshed 4 days ago', notes: 'Primary WAN link is stable and peering remains within expected thresholds.' },
+    { id: 'SQL-CORE-02', name: 'SQL-CORE-02', type: 'Server', vendor: 'HPE', model: 'Apollo 4510 Gen10', serial: 'HPE-DB-55781', location: 'Chicago', warranty: '2027-05-22', healthScore: 68, status: 'Warning', lifecycleStatus: 'Production', owner: 'Samira Khan', maintenanceSchedule: 'Database maintenance scheduled for 2026-09-19', maintenance: 'Database maintenance scheduled for next window', notes: 'Replication delay increased by 2s and is trending within warning tolerance.' },
+    { id: 'STO-FILE-04', name: 'STO-FILE-04', type: 'Storage System', vendor: 'NetApp', model: 'AFF A800', serial: 'NETAPP-4187', location: 'New York', warranty: '2026-12-03', healthScore: 74, status: 'Degraded', lifecycleStatus: 'Expansion', owner: 'Diego Ruiz', maintenanceSchedule: 'Capacity review and expansion — next review 2026-09-20', maintenance: 'Expansion project queued for maintenance cycle', notes: 'Cold storage tier is above target utilization and should be expanded before peak traffic.' },
+    { id: 'VPN-GW-03', name: 'VPN-GW-03', type: 'Network Device', vendor: 'Palo Alto', model: 'PA-3220', serial: 'PAN-43199', location: 'Dallas', warranty: '2028-03-08', healthScore: 81, status: 'Warning', lifecycleStatus: 'Production', owner: 'Jordan Miller', maintenanceSchedule: 'Firewall policy and cluster validation — 2026-09-28', maintenance: 'Cluster failover tested 3 days ago', notes: 'Memory utilization remains elevated during peak traffic and is being monitored.' },
+    { id: 'VM-APP-07', name: 'VM-APP-07', type: 'Virtual Machine', vendor: 'VMware', model: 'vSphere 8', serial: 'VMW-40091', location: 'Singapore', warranty: '2027-02-20', healthScore: 88, status: 'Operational', lifecycleStatus: 'Production', owner: 'Priya Shah', maintenanceSchedule: 'Snapshot cleanup and patch review — completed weekly', maintenance: 'Snapshot cleanup completed this week', notes: 'Application VM is running within policy thresholds with no active incidents.' },
+    { id: 'VM-DB-09', name: 'VM-DB-09', type: 'Virtual Machine', vendor: 'VMware', model: 'vSphere 8', serial: 'VMW-50088', location: 'Chicago', warranty: '2027-07-15', healthScore: 94, status: 'Operational', lifecycleStatus: 'Production', owner: 'Jordan Miller', maintenanceSchedule: 'Patch cycle completed successfully — next patch 2026-10-10', maintenance: 'Patch cycle completed successfully', notes: 'Database VM has stable performance and strong headroom across the host cluster.' },
+    { id: 'STO-BACK-11', name: 'STO-BACK-11', type: 'Storage System', vendor: 'IBM', model: 'FlashSystem 7300', serial: 'IBM-7300-28', location: 'Boston', warranty: '2027-08-31', healthScore: 90, status: 'Operational', lifecycleStatus: 'Production', owner: 'Samira Khan', maintenanceSchedule: 'Replication validation and firmware audit — 2026-09-30', maintenance: 'Snapshot replication passed validation', notes: 'Backup platform health remains strong and scheduled checks are stable.' },
+  ]
+
+  const categories = ['Asset List', 'Server Inventory', 'Network Devices', 'Storage Systems', 'Virtual Machines']
+  const categoryMap = { 'Server Inventory': 'Server', 'Network Devices': 'Network Device', 'Storage Systems': 'Storage System', 'Virtual Machines': 'Virtual Machine' }
+  const [category, setCategory] = useState('Asset List')
+  const [query, setQuery] = useState('')
+  const [vendorFilter, setVendorFilter] = useState('All')
+  const [typeFilter, setTypeFilter] = useState('All')
+  const [statusFilter, setStatusFilter] = useState('All')
+  const [expirationFilter, setExpirationFilter] = useState('All')
+  const [selectedId, setSelectedId] = useState(assetList[0]?.id || null)
+  const [drawerOpen, setDrawerOpen] = useState(true)
+
+  const getDaysRemaining = (assetWarranty) => {
+    const oneDay = 24 * 60 * 60 * 1000
+    return Math.ceil((new Date(assetWarranty).getTime() - Date.now()) / oneDay)
+  }
+
+  const visibleAssets = assetList.filter((asset) => {
+    const matchesCategory = category === 'Asset List' || asset.type === categoryMap[category]
+    const matchesVendor = vendorFilter === 'All' || asset.vendor === vendorFilter
+    const matchesType = typeFilter === 'All' || asset.type === typeFilter
+    const matchesStatus = statusFilter === 'All' || asset.status === statusFilter
+    const daysRemaining = getDaysRemaining(asset.warranty)
+    const matchesExpiration = expirationFilter === 'All' || (expirationFilter === 'Expiring soon' ? daysRemaining <= 365 && daysRemaining >= 0 : daysRemaining > 365)
+    const haystack = `${asset.name} ${asset.type} ${asset.vendor} ${asset.model} ${asset.serial} ${asset.location} ${asset.owner}`.toLowerCase()
+    const matchesQuery = haystack.includes(query.toLowerCase())
+    return matchesCategory && matchesVendor && matchesType && matchesStatus && matchesExpiration && matchesQuery
+  })
+
+  const selectedAsset = visibleAssets.find((asset) => asset.id === selectedId) || visibleAssets[0] || null
+
+  const exportCsv = () => {
+    if (!visibleAssets.length) return
+
+    const header = ['Asset Name', 'Type', 'Vendor', 'Model', 'Serial Number', 'Location', 'Warranty', 'Health Score', 'Status', 'Lifecycle Status', 'Owner', 'Maintenance Schedule']
+    const rows = visibleAssets.map((asset) => [asset.name, asset.type, asset.vendor, asset.model, asset.serial, asset.location, asset.warranty, asset.healthScore, asset.status, asset.lifecycleStatus, asset.owner, asset.maintenanceSchedule])
+    const csv = [header, ...rows].map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'asset-inventory.csv'
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const getTone = (status) => status === 'Operational' ? 'green' : status === 'Warning' ? 'amber' : 'red'
+
+  return <div className="dashboard"><PageHeader eyebrow="Assets" title={<>Track every asset<br /><span>in one place.</span></>} text="Complete inventory for servers, network devices, storage systems, and virtual machines across the enterprise estate." action={<button className="outline-button" type="button" onClick={exportCsv}><Download size={15} />Export CSV</button>} /><div className="asset-summary-grid"><div className="dashboard-card asset-summary-card"><span className="auth-eyebrow">Total assets</span><strong>{assetList.length}</strong><small>Managed across 6 regions</small></div><div className="dashboard-card asset-summary-card"><span className="auth-eyebrow">Healthy</span><strong>{assetList.filter((asset) => asset.status === 'Operational').length}</strong><small>Balanced and stable</small></div><div className="dashboard-card asset-summary-card"><span className="auth-eyebrow">At risk</span><strong>{assetList.filter((asset) => asset.status !== 'Operational').length}</strong><small>Needs attention</small></div><div className="dashboard-card asset-summary-card"><span className="auth-eyebrow">Avg health</span><strong>{Math.round(assetList.reduce((total, asset) => total + asset.healthScore, 0) / assetList.length)}%</strong><small>Portfolio score</small></div></div><div className="monitoring-layout"><section className="dashboard-card monitor-table asset-table-card"><CardHeader eyebrow="Asset inventory" title={`${visibleAssets.length} ${category === 'Asset List' ? 'assets' : category.toLowerCase()}`} /><div className="asset-tabs">{categories.map((item) => <button key={item} type="button" className={category === item ? 'active' : ''} onClick={() => setCategory(item)}>{item}</button>)}</div><div className="asset-filter-bar"><div className="device-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search asset inventory..." /></div><div className="asset-filter-group"><select value={vendorFilter} onChange={(event) => setVendorFilter(event.target.value)}><option>All</option>{[...new Set(assetList.map((asset) => asset.vendor))].map((vendor) => <option key={vendor}>{vendor}</option>)}</select><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}><option>All</option>{[...new Set(assetList.map((asset) => asset.type))].map((type) => <option key={type}>{type}</option>)}</select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>All</option>{['Operational', 'Warning', 'Degraded'].map((status) => <option key={status}>{status}</option>)}</select><select value={expirationFilter} onChange={(event) => setExpirationFilter(event.target.value)}><option>All</option><option>Expiring soon</option><option>Valid</option></select></div></div><div className="table-wrap"><table className="monitoring-table asset-table"><thead><tr><th>Asset</th><th>Type</th><th>Vendor</th><th>Owner</th><th>Health</th><th>Lifecycle</th><th>Warranty</th><th>Status</th></tr></thead><tbody>{visibleAssets.length ? visibleAssets.map((asset) => <tr key={asset.id} className={selectedAsset?.id === asset.id ? 'selected-row' : ''} onClick={() => { setSelectedId(asset.id); setDrawerOpen(true) }}><td><strong>{asset.name}</strong><small>{asset.model}</small></td><td>{asset.type}</td><td>{asset.vendor}</td><td>{asset.owner}</td><td><strong>{asset.healthScore}</strong></td><td>{asset.lifecycleStatus}</td><td>{asset.warranty}</td><td><span className={`status-pill ${getTone(asset.status)}`}>{asset.status}</span></td></tr>) : <tr><td colSpan="8" className="audit-empty">No assets match the current search or filter.</td></tr>}</tbody></table></div></section><aside className={`device-drawer ${drawerOpen ? 'open' : ''}`}><AssetDetail asset={selectedAsset} onClose={() => setDrawerOpen(false)} /></aside></div></div>
+}
+
+function AssetDetail({ asset, onClose }) {
+  if (!asset) return <section className="dashboard-card device-detail"><div className="device-detail-header"><span className="auth-eyebrow">Asset detail</span>{onClose && <button className="close-button" onClick={onClose} aria-label="Close detail panel"><X size={16} /></button>}</div><h2>Select an asset</h2><p>Choose an asset record to inspect its equipment health, maintenance notes, and lifecycle coverage.</p></section>
+
+  const tone = asset.status === 'Operational' ? 'green' : asset.status === 'Warning' ? 'amber' : 'red'
+  const daysRemaining = Math.ceil((new Date(asset.warranty).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+
+  return <section className="dashboard-card device-detail asset-detail"><div className="device-detail-header"><div><span className="auth-eyebrow">Asset detail</span><h2>{asset.name}</h2><p>{asset.vendor} · {asset.model}</p></div>{onClose && <button className="close-button" onClick={onClose} aria-label="Close detail panel"><X size={16} /></button>}</div><span className={`status-pill ${tone}`}>{asset.status}</span><div className="asset-detail-grid"><div><span>Asset owner</span><strong>{asset.owner}</strong></div><div><span>Lifecycle status</span><strong>{asset.lifecycleStatus}</strong></div><div><span>Maintenance schedule</span><strong>{asset.maintenanceSchedule}</strong></div><div><span>Warranty tracking</span><strong>{asset.warranty} · {daysRemaining} days left</strong></div></div><div className="asset-detail-metrics"><div><strong>{asset.healthScore}</strong><span>Health score</span></div><div><strong>{asset.lifecycleStatus}</strong><span>Lifecycle</span></div><div><strong>{asset.owner}</strong><span>Owner</span></div></div><div className="asset-detail-copy"><h3>Maintenance note</h3><p>{asset.maintenance}</p><h3>Warranty summary</h3><p>{daysRemaining > 365 ? 'Warranty remains active and within normal coverage.' : daysRemaining > 0 ? 'Warranty is nearing expiration and should be reviewed.' : 'Warranty has expired and requires renewal review.'}</p><p>{asset.notes}</p></div><button className="outline-button" type="button">Open maintenance runbook</button></section>
+}
+
+function SecurityPage() {
+  const [security, setSecurity] = useState({
+    securityScore: 'Data unavailable',
+    activeThreats: 'Data unavailable',
+    vulnerabilityCount: 'Data unavailable',
+    securityHealth: 'Data unavailable',
+    events: [],
+  })
+
+  useEffect(() => {
+    let active = true
+
+    apiRequest('/api/security', {
+      securityScore: 'Data unavailable',
+      activeThreats: 'Data unavailable',
+      vulnerabilityCount: 'Data unavailable',
+      securityHealth: 'Data unavailable',
+      events: [],
+    }).then((payload) => {
+      if (!active) return
+      setSecurity({
+        securityScore: payload?.securityScore || 'Data unavailable',
+        activeThreats: payload?.activeThreats || 'Data unavailable',
+        vulnerabilityCount: payload?.vulnerabilityCount || 'Data unavailable',
+        securityHealth: payload?.securityHealth || 'Data unavailable',
+        events: Array.isArray(payload?.events) ? payload.events : [],
+      })
+    })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const overview = [
+    { label: 'Security score', value: String(security.securityScore), tone: 'green' },
+    { label: 'Active threats', value: String(security.activeThreats), tone: 'amber' },
+    { label: 'Vulnerabilities', value: String(security.vulnerabilityCount), tone: 'cyan' },
+    { label: 'Security health', value: String(security.securityHealth), tone: 'green' },
+  ]
+
+  const vulnerabilities = [
+    { title: 'Critical: SSH hardening', severity: 'Critical', status: 'Pending', owner: 'Samira Khan' },
+    { title: 'Medium: API token rotation', severity: 'Medium', status: 'In review', owner: 'Jordan Miller' },
+    { title: 'Low: Legacy certificate policy', severity: 'Low', status: 'Scheduled', owner: 'Priya Shah' },
+  ]
+
+  const events = security.events.length ? security.events : [
+    { time: '06:12 UTC', event: 'Firewall policy update applied', source: 'Edge cluster', impact: 'Reduced risk score by 1.4%' },
+    { time: '05:48 UTC', event: 'Threat intelligence match blocked', source: 'API edge', impact: 'No user impact' },
+    { time: '05:17 UTC', event: 'Privilege escalation alert reviewed', source: 'Admin access', impact: 'Access restored and logged' },
+    { time: '04:51 UTC', event: 'Vulnerability scan completed', source: 'Core servers', impact: 'Patch backlog reduced by 6%' },
+  ]
+
+  return <div className="dashboard"><PageHeader eyebrow="Security" title={<>Security center<br /><span>with full visibility.</span></>} text="Monitor policy posture, threat exposure, compliance coverage, and the latest security activity across the estate." action={<button className="outline-button" type="button">Run security scan</button>} /><div className="metric-grid">{overview.map((item) => <div key={item.label} className="dashboard-card metric-card monitoring-kpi"><div className="metric-card-top"><span className="auth-eyebrow">{item.label}</span></div><strong className={item.tone}>{item.value}</strong><small>{item.label === 'Active threats' ? 'requires response' : item.label === 'Vulnerabilities' ? 'to be remediated' : item.label === 'Security health' ? 'current posture' : 'current posture'}</small></div>)}</div><div className="dashboard-grid" style={{ marginTop: '17px' }}><section className="dashboard-card"><CardHeader eyebrow="Security overview" title="Operational posture" /><div className="summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px', marginTop: '16px' }}><div className="detail-stat"><span>Patch status</span><strong>{security.securityHealth === 'Data unavailable' ? 'Data unavailable' : '94% compliant'}</strong></div><div className="detail-stat"><span>Compliance status</span><strong>ISO 27001 aligned</strong></div><div className="detail-stat"><span>Last scan</span><strong>06:15 UTC</strong></div><div className="detail-stat"><span>Threat model</span><strong>Low / monitored</strong></div></div></section><section className="dashboard-card"><CardHeader eyebrow="Vulnerability summary" title="Open findings" /><div className="alert-list" style={{ marginTop: '18px' }}>{vulnerabilities.map((item) => <div key={item.title} className="alert-row detailed-alert"><span className={`alert-icon ${item.severity.toLowerCase()}`}><ShieldCheck size={15} /></span><span><strong>{item.title}</strong><small>{item.owner} &middot; {item.status}</small></span><span className="alert-state">{item.severity}</span></div>)}</div></section></div><section className="dashboard-card" style={{ marginTop: '17px' }}><CardHeader eyebrow="Recent security events" title="Threat activity" /><div className="alert-list" style={{ marginTop: '18px' }}>{events.map((item) => <div key={`${item.time}-${item.event}`} className="alert-row detailed-alert"><span className="alert-icon cyan"><ShieldCheck size={15} /></span><span><strong>{item.event}</strong><small>{item.source} &middot; {item.time}</small></span><span className="event-impact">{item.impact}</span></div>)}</div></section></div>
+}
+
 function SettingsPage() {
   const [workspace, setWorkspace] = useState('Enterprise Operations')
   const [timezone, setTimezone] = useState('UTC-05:00 (New York)')
