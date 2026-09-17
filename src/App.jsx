@@ -142,9 +142,75 @@ function Dashboard() {
   if (location.pathname === '/alerts') return <AlertsPage />
   if (location.pathname === '/reports') return <ReportsPage />
   if (location.pathname === '/settings') return <SettingsPage />
+
   const liveValues = dashboardData ? { 'CPU usage': `${dashboardData.cpu}%`, 'RAM usage': `${dashboardData.ram}%`, 'Disk usage': `${dashboardData.disk}%`, 'Network traffic': dashboardData.traffic, 'Active alerts': dashboardData.alerts, 'Device count': dashboardData.devices, 'Server count': dashboardData.servers } : {}
-  return <div className="dashboard"><div className="dashboard-heading"><div><span className="auth-eyebrow">Tuesday, September 16, 2026</span><h1>Good morning, <span>Operations.</span></h1><p>Here is the latest pulse across your enterprise environment.</p></div><button className="outline-button" onClick={refresh} disabled={refreshing}><Activity size={16} />{refreshing ? 'Refreshing...' : 'Live refresh'}</button></div><div className="metric-grid">{metrics.map(metric => <MetricCard key={metric.label} {...metric} value={liveValues[metric.label] || metric.value} />)}</div><div className="dashboard-grid"><NetworkMap /><ServerStatus /><UsageChart /><Alerts /><MonitoringSummary /><PingStatus /></div><SuccessStories /><TeamSection /><ContactSection /></div>
+  const performanceSeries = [
+    { label: 'CPU Trend', value: '42.8%', detail: 'Across 12 clusters', color: '#28d8c0', points: [31, 35, 34, 42, 48, 44, 52, 55, 58, 62, 60, 64] },
+    { label: 'Memory Trend', value: '68.4%', detail: 'Committed capacity', color: '#6e9ee8', points: [54, 58, 57, 60, 64, 66, 68, 71, 72, 69, 70, 73] },
+    { label: 'Disk Trend', value: '71.2%', detail: 'Utilization baseline', color: '#e2a84d', points: [42, 46, 45, 52, 56, 60, 63, 67, 71, 70, 73, 74] },
+    { label: 'Network Traffic', value: '1.84 GB/s', detail: 'Peak ingress rate', color: '#43be92', points: [22, 28, 32, 40, 50, 48, 61, 65, 70, 74, 76, 80] },
+  ]
+
+  return <div className="dashboard"><div className="dashboard-heading"><div><span className="auth-eyebrow">Tuesday, September 16, 2026</span><h1>Good morning, <span>Operations.</span></h1><p>Here is the latest pulse across your enterprise environment.</p></div><button className="outline-button" onClick={refresh} disabled={refreshing}><Activity size={16} />{refreshing ? 'Refreshing...' : 'Live refresh'}</button></div><div className="metric-grid">{metrics.map(metric => <MetricCard key={metric.label} {...metric} value={liveValues[metric.label] || metric.value} />)}</div><div className="executive-layout"><section className="dashboard-card performance-panel"><CardHeader eyebrow="Performance intelligence" title="Operational trends" /><div className="chart-grid">{performanceSeries.map((series) => <TrendChart key={series.label} {...series} />)}</div></section><ExecutiveSummaryPanel /></div><div className="dashboard-grid"><TopologyMap /><MonitoringTable /><AlertConsole /><ServerStatus /><NetworkMap /><MonitoringSummary /><PingStatus /><Alerts /></div><SuccessStories /><TeamSection /><ContactSection /></div>
 }
+
+function TrendChart({ label, value, detail, color, points }) {
+  const width = 220; const height = 84; const pad = 12
+  const max = Math.max(...points)
+  const min = Math.min(...points)
+  const range = Math.max(max - min, 1)
+  const path = points.map((point, index) => {
+    const x = pad + (index / (points.length - 1)) * (width - pad * 2)
+    const y = height - pad - ((point - min) / range) * (height - pad * 2)
+    return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
+  }).join(' ')
+
+  return <article className="trend-card"><div className="trend-header"><span>{label}</span><strong>{value}</strong></div><svg viewBox={`0 0 ${width} ${height}`} className="trend-svg" aria-label={`${label} chart`} role="img"><defs><linearGradient id={`gradient-${label.replace(/\s+/g, '-').toLowerCase()}`} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity="0.38" /><stop offset="100%" stopColor={color} stopOpacity="0.02" /></linearGradient></defs><path d={`${path} L ${width - pad} ${height - pad} L ${pad} ${height - pad} Z`} fill={`url(#gradient-${label.replace(/\s+/g, '-').toLowerCase()})`} opacity="0.9" /><path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg><div className="trend-meta"><small>{detail}</small><span>{points[points.length - 1]}%</span></div></article>
+}
+
+function ExecutiveSummaryPanel() {
+  const summaryItems = [
+    { label: 'Availability', value: '99.98%', tone: 'green' },
+    { label: 'MTTR', value: '14 min', tone: 'amber' },
+    { label: 'Risk score', value: 'Low', tone: 'cyan' },
+  ]
+
+  return <section className="dashboard-card executive-summary-panel"><CardHeader eyebrow="Executive summary" title="Business impact" /><div className="summary-capsule"><div><strong>96%</strong><span>Service coverage</span></div><span className="health-badge">Healthy</span></div><div className="executive-list">{summaryItems.map((item) => <div className="executive-stat" key={item.label}><span>{item.label}</span><strong className={item.tone}>{item.value}</strong></div>)}</div><div className="executive-note"><ShieldCheck size={15} /><p>Incident backlog is down 18% this week and customer-facing latency remains within SLA thresholds.</p></div></section>
+}
+
+function TopologyMap() {
+  const nodes = [
+    { name: 'Core Switch', role: 'Primary', x: '50%', y: '18%', type: 'core' },
+    { name: 'Firewall', role: 'Security', x: '18%', y: '52%', type: 'firewall' },
+    { name: 'Servers', role: 'Compute', x: '38%', y: '78%', type: 'server' },
+    { name: 'Cloud', role: 'Hybrid', x: '76%', y: '60%', type: 'cloud' },
+  ]
+
+  return <section className="dashboard-card topology-panel"><CardHeader eyebrow="Network topology" title="Infrastructure map" /><div className="topology-visual"><svg viewBox="0 0 500 260" className="topology-svg" aria-label="Infrastructure topology map" role="img"><path d="M245 52 L180 125 L126 165" /><path d="M245 52 L245 125 L210 185" /><path d="M245 52 L332 132 L390 158" /><path d="M180 125 L250 180 L332 132" /><path d="M126 165 L210 185 L250 180" /></svg>{nodes.map((node) => <div key={node.name} className={`topology-node ${node.type}`} style={{ left: node.x, top: node.y }}><span className="node-chip"><Network size={12} /></span><div><strong>{node.name}</strong><small>{node.role}</small></div></div>)}</div></section>
+}
+
+function MonitoringTable() {
+  const rows = [
+    { name: 'Core Edge Router', ip: '10.24.11.12', status: 'Operational', cpu: '42%', memory: '58%', lastCheck: '12 sec ago' },
+    { name: 'Finance DB Cluster', ip: '10.24.19.02', status: 'Warning', cpu: '71%', memory: '76%', lastCheck: '28 sec ago' },
+    { name: 'API Gateway', ip: '10.24.17.33', status: 'Operational', cpu: '39%', memory: '52%', lastCheck: '18 sec ago' },
+    { name: 'Storage Array', ip: '10.24.24.08', status: 'Degraded', cpu: '66%', memory: '81%', lastCheck: '46 sec ago' },
+    { name: 'Edge Firewall', ip: '10.24.08.21', status: 'Operational', cpu: '48%', memory: '55%', lastCheck: '7 sec ago' },
+  ]
+
+  return <section className="dashboard-card monitoring-table-card"><CardHeader eyebrow="Inventory" title="Monitoring table" /><div className="table-wrap"><table className="monitoring-table"><thead><tr><th>Device Name</th><th>IP Address</th><th>Status</th><th>CPU</th><th>Memory</th><th>Last Check</th></tr></thead><tbody>{rows.map((row) => <tr key={row.name}><td>{row.name}</td><td>{row.ip}</td><td><span className={`status-pill ${row.status === 'Operational' ? 'green' : row.status === 'Warning' ? 'amber' : 'red'}`}>{row.status}</span></td><td>{row.cpu}</td><td>{row.memory}</td><td>{row.lastCheck}</td></tr>)}</tbody></table></div></section>
+}
+
+function AlertConsole() {
+  const alerts = [
+    { level: 'Critical', title: 'Database replication lag detected', host: 'Finance DB Cluster', summary: 'Primary node is 6s behind the standby cluster.', time: '2 min ago' },
+    { level: 'Warning', title: 'Storage capacity threshold reached', host: 'Storage Array', summary: 'Volume utilization crossed 80% on the cold storage tier.', time: '12 min ago' },
+    { level: 'Information', title: 'Certificate auto-renewal successful', host: 'API Gateway', summary: 'TLS certificate renewed without service interruption.', time: '1 hr ago' },
+  ]
+
+  return <section className="dashboard-card alert-console-card"><CardHeader eyebrow="Response center" title="Alert console" /><div className="alert-console-filters"><span className="active">Critical</span><span>Warning</span><span>Information</span></div><div className="alert-console-list">{alerts.map((alert) => <div key={`${alert.level}-${alert.title}`} className="alert-console-item"><div className={`alert-icon ${alert.level.toLowerCase()}`}><AlertTriangle size={14} /></div><div className="alert-console-copy"><div className="alert-console-head"><strong>{alert.title}</strong><span className={`alert-badge ${alert.level.toLowerCase()}`}>{alert.level}</span></div><small>{alert.host}</small><p>{alert.summary}</p><time>{alert.time}</time></div></div>)}</div></section>
+}
+
 function PageHeader({ eyebrow, title, text, action }) { return <div className="page-heading"><div><span className="auth-eyebrow">{eyebrow}</span><h1>{title}</h1><p>{text}</p></div>{action && <button className="outline-button">{action}</button>}</div> }
 function PingStatus() { const locations = [['Chicago edge', '18 ms', 'green'], ['Frankfurt edge', '92 ms', 'green'], ['Singapore edge', '184 ms', 'amber']]; return <section className="dashboard-card ping-card"><CardHeader eyebrow="Connectivity" title="Ping status" action={{ label: 'View probes', href: '#monitoring' }} /><div className="ping-summary"><strong>99.97%</strong><span>average reachability</span></div><div className="ping-list">{locations.map(([name, latency, tone]) => <div key={name}><span className="server-status-dot" data-tone={tone} /><strong>{name}</strong><span>{latency}</span></div>)}</div></section> }
 function NetworkMap() { const nodes = [['Chicago', 'green', '18 ms', 'node-chicago'], ['Frankfurt', 'green', '92 ms', 'node-frankfurt'], ['Singapore', 'amber', '184 ms', 'node-singapore'], ['New York', 'green', '36 ms', 'node-new-york']]; return <section className="dashboard-card network-map"><CardHeader eyebrow="Global topology" title="Monitoring map" action={{ label: 'Open monitoring', href: '/monitoring' }} /><div className="map-canvas"><div className="map-grid" /><div className="map-route route-one" /><div className="map-route route-two" /><div className="map-core"><Network size={18} /><span>CORE</span></div>{nodes.map(([name, tone, ping, position]) => <div className={`map-node ${position}`} key={name}><span className={`map-dot ${tone}`} /><strong>{name}</strong><small>{ping}</small></div>)}</div><div className="map-footer"><span><i className="green-dot" />Operational</span><span><i className="amber-dot" />Degraded</span><span>126 endpoints</span></div></section> }
