@@ -19,6 +19,9 @@ app.get('/api/dashboard', async (_req, res) => {
   try {
     const snapshot = await getGrafanaSnapshot()
     console.log('[Grafana] /api/dashboard response', JSON.stringify(snapshot.dashboard).slice(0, 2000))
+    // "Active Alerts" widget = Grafana alertmanager API (dashboard.alerts is
+    // already the firing count set by getGrafanaSnapshot). The alerts-table
+    // open queue remains available to the Alerts page via GET /api/alerts.
     res.json(snapshot.dashboard)
   } catch (error) {
     console.error('Dashboard API error:', error)
@@ -327,8 +330,28 @@ app.delete('/api/alerts/:id', requireAuth, requireRole('Admin'), async (req, res
 app.get('/api/security', async (_req, res) => {
   try {
     const snapshot = await getGrafanaSnapshot()
-    console.log('[Grafana] /api/security response', JSON.stringify(snapshot.security).slice(0, 2000))
-    res.json(snapshot.security)
+    const security = { ...snapshot.security }
+
+    // Real security posture from the alerts table (critical/warning = open
+    // severity counts; events = latest open alerts). No fabricated metrics.
+    try {
+      const summary = await getAlertSummary()
+      security.activeThreats = summary.critical
+      security.vulnerabilityCount = summary.warning
+      security.securityHealth = summary.critical > 0 ? 'Degraded' : 'Healthy'
+      const recent = await pool.query("SELECT title, severity, created_at FROM alerts WHERE status <> 'Closed' ORDER BY created_at DESC LIMIT 3")
+      security.events = recent.rows.map((row) => ({
+        time: row.created_at ? new Date(row.created_at).toLocaleTimeString() : '—',
+        event: row.title,
+        source: 'Alert queue',
+        impact: row.severity,
+      }))
+    } catch (alertError) {
+      console.warn('[Security] alerts summary unavailable:', alertError.message)
+    }
+
+    console.log('[Grafana] /api/security response', JSON.stringify(security).slice(0, 2000))
+    res.json(security)
   } catch (error) {
     console.error('Security API error:', error)
     res.json({ securityScore: 'Data unavailable', activeThreats: 'Data unavailable', vulnerabilityCount: 'Data unavailable', securityHealth: 'Data unavailable', events: [], message: 'Data unavailable' })

@@ -3,10 +3,19 @@ require('dotenv').config()
 const http = require('http')
 const https = require('https')
 
+const DATA_UNAVAILABLE = 'Data unavailable'
 const DEFAULT_UNAVAILABLE = Object.freeze({
   dataUnavailable: true,
-  message: 'Data unavailable',
+  message: DATA_UNAVAILABLE,
 })
+
+// Snapshot cache — keeps dashboard/API polling from hammering Grafana.
+const CACHE_TTL_MS = 15000
+const HISTORY_WINDOW = 'now-1h'
+const HISTORY_MAX_POINTS = 12
+
+let cachedSnapshot = null
+let cachedAt = 0
 
 function getGrafanaConfig() {
   const url = typeof process.env.GRAFANA_URL === 'string' ? process.env.GRAFANA_URL.trim().replace(/\/+$/, '') : ''
@@ -15,28 +24,52 @@ function getGrafanaConfig() {
   return { url, token }
 }
 
-function logGrafanaSuccess(label, payload) {
-  const safePayload = payload && typeof payload === 'object' ? payload : { value: payload }
-  console.log(`[Grafana] ${label} success`, JSON.stringify(safePayload).slice(0, 2000))
+function logGrafanaRequest(method, path, status, durationMs) {
+  console.log(`[Grafana] ${method} ${path} -> ${status} (${durationMs}ms)`)
 }
 
-async function grafanaRequest(path) {
+function logGrafanaResponse(path, payload) {
+  try {
+    console.log(`[Grafana] response ${path}`, JSON.stringify(payload).slice(0, 2000))
+  } catch (error) {
+    console.log(`[Grafana] response ${path} <unserializable>`)
+  }
+}
+
+function logMetricMapping(metric, detail) {
+  console.log(`[Grafana][mapping] ${metric}`, JSON.stringify(detail).slice(0, 1000))
+}
+
+function grafanaRequest(method, path, body) {
   const { url, token } = getGrafanaConfig()
-  if (!url || !token) throw new Error('Grafana is not configured. Set GRAFANA_URL and GRAFANA_TOKEN.')
+  if (!url || !token) {
+    return Promise.reject(new Error('Grafana is not configured. Set GRAFANA_URL and GRAFANA_TOKEN.'))
+  }
 
   return new Promise((resolve, reject) => {
     const endpoint = `${url}${path.startsWith('/') ? path : `/${path}`}`
-    const parsedUrl = new URL(endpoint)
+    let parsedUrl
+    try {
+      parsedUrl = new URL(endpoint)
+    } catch (error) {
+      reject(new Error(`Invalid Grafana URL: ${endpoint}`))
+      return
+    }
+
     const transport = parsedUrl.protocol === 'https:' ? https : http
+    const payload = body === undefined || body === null ? null : JSON.stringify(body)
+    const started = Date.now()
 
     const req = transport.request(
       parsedUrl,
       {
-        method: 'GET',
+        method: method || 'GET',
         headers: {
           Accept: 'application/json',
           Authorization: `Bearer ${token}`,
+          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : null),
         },
+        timeout: 10000,
       },
       (res) => {
         let raw = ''
@@ -46,15 +79,17 @@ async function grafanaRequest(path) {
         })
 
         res.on('end', () => {
+          logGrafanaRequest(method || 'GET', path, res.statusCode, Date.now() - started)
+
           if (res.statusCode >= 400) {
-            reject(new Error(`Grafana request failed with status ${res.statusCode}.`))
+            reject(new Error(`Grafana request ${method || 'GET'} ${path} failed with status ${res.statusCode}.`))
             return
           }
 
           try {
-            const payload = raw ? JSON.parse(raw) : null
-            logGrafanaSuccess(path, payload)
-            resolve(payload)
+            const parsed = raw ? JSON.parse(raw) : null
+            logGrafanaResponse(path, parsed)
+            resolve(parsed)
           } catch (error) {
             reject(new Error(`Grafana response was not valid JSON for ${path}: ${error.message}`))
           }
@@ -62,9 +97,216 @@ async function grafanaRequest(path) {
       },
     )
 
+    req.on('timeout', () => {
+      req.destroy(new Error(`Grafana request ${path} timed out.`))
+    })
     req.on('error', reject)
+    if (payload) req.write(payload)
     req.end()
   })
+}
+
+async function queryDatasource(datasource, queries, options = {}) {
+  return grafanaRequest('POST', '/api/ds/query', {
+    queries,
+    from: options.from || 'now-6h',
+    to: options.to || 'now',
+    ...(options.maxDataPoints ? { maxDataPoints: options.maxDataPoints } : null),
+  })
+}
+
+function resultFrames(response, refId) {
+  const results = (response && response.results) || {}
+  const result = results[refId]
+  return result && Array.isArray(result.frames) ? result.frames : []
+}
+
+function extractInstantValue(response, refId) {
+  for (const frame of resultFrames(response, refId)) {
+    const values = frame && frame.data && Array.isArray(frame.data.values) ? frame.data.values : []
+    const numeric = values.length > 1 ? values[1] : []
+    for (let i = numeric.length - 1; i >= 0; i -= 1) {
+      const value = Number(numeric[i])
+      if (Number.isFinite(value)) return value
+    }
+  }
+  return null
+}
+
+function extractSeries(response, refId, maxPoints = HISTORY_MAX_POINTS) {
+  const points = []
+  for (const frame of resultFrames(response, refId)) {
+    const values = frame && frame.data && Array.isArray(frame.data.values) ? frame.data.values : []
+    if (values.length < 2) continue
+    const times = values[0]
+    const numeric = values[1]
+    for (let i = 0; i < times.length && i < numeric.length; i += 1) {
+      const value = Number(numeric[i])
+      if (Number.isFinite(value)) points.push({ t: new Date(Number(times[i])).toISOString(), v: value })
+    }
+  }
+  if (points.length <= maxPoints) return points
+  const step = Math.ceil(points.length / maxPoints)
+  return points.filter((_, index) => index % step === 0 || index === points.length - 1)
+}
+
+function roundTo(value, decimals) {
+  const factor = Math.pow(10, decimals)
+  return Math.round(value * factor) / factor
+}
+
+function formatBps(value) {
+  if (!Number.isFinite(value)) return DATA_UNAVAILABLE
+  const abs = Math.abs(value)
+  if (abs >= 1e12) return `${roundTo(value / 1e12, 2)} Tbps`
+  if (abs >= 1e9) return `${roundTo(value / 1e9, 2)} Gbps`
+  if (abs >= 1e6) return `${roundTo(value / 1e6, 2)} Mbps`
+  if (abs >= 1e3) return `${roundTo(value / 1e3, 2)} Kbps`
+  return `${roundTo(value, 0)} bps`
+}
+
+const FORMATTERS = {
+  percent: (value) => roundTo(value, 1),
+  bps: formatBps,
+}
+
+// ---------------------------------------------------------------------------
+// Widget metric mapping — each dashboard widget is fed by a real datasource
+// query. `relatedPanel` documents which Grafana dashboard panel visualizes the
+// same metric (traceability; queries run datasource-level, not per panel).
+// ---------------------------------------------------------------------------
+
+const METRIC_QUERIES = {
+  cpu: {
+    label: 'CPU Usage',
+    exprs: ['100 - avg(cpu_usage_idle)', '100 - avg(cpu_usage_idle{mode!~"idle|iowait|guest"})'],
+    unit: 'percent',
+    relatedPanel: { dashboardUid: 'advvbzl', dashboardTitle: 'New dashboard', panelId: 1, panelTitle: 'CPU_CORE_ROUTER01_02_03' },
+  },
+  ram: {
+    label: 'Memory Usage',
+    exprs: ['100 - avg(mem_available_percent)', '100 * (1 - sum(mem_available) / sum(mem_total))'],
+    unit: 'percent',
+    relatedPanel: { dashboardUid: 'svsc55t', dashboardTitle: 'SAOVANG_MONITORING_ASR-ROUTER03 TX', panelId: 7, panelTitle: 'DEVICE HEALTH' },
+  },
+  disk: {
+    label: 'Disk Usage',
+    exprs: ['avg(disk_used_percent)', '100 * (1 - sum(disk_free) / sum(disk_total))'],
+    unit: 'percent',
+    relatedPanel: null,
+  },
+  traffic: {
+    label: 'Network Traffic',
+    exprs: [
+      'sum(irate(ifHCInOctets[2m]) * 8) + sum(irate(ifHCOutOctets[2m]) * 8)',
+      'sum(irate(ifHCInOctets[2m]) * 8)',
+    ],
+    unit: 'bps',
+    relatedPanel: { dashboardUid: '93903d4a-e1ea-4636-a449-9b88a9fa36a3', dashboardTitle: 'SWITCH_NOC_SVTELECOM', panelId: 1, panelTitle: 'Total Traffic' },
+  },
+  availability: {
+    label: 'Availability',
+    exprs: [
+      'count(up == 1) / count(up) * 100',
+      '100 * sum(ifOperStatus == bool 1) / (sum(ifOperStatus == bool 1) + sum(ifOperStatus == bool 2) + sum(ifOperStatus == bool 7))',
+    ],
+    unit: 'percent',
+    relatedPanel: { dashboardUid: '93903d4a-e1ea-4636-a449-9b88a9fa36a3', dashboardTitle: 'SWITCH_NOC_SVTELECOM', panelId: 6, panelTitle: 'Port Status' },
+  },
+}
+
+const UNAVAILABLE_METRIC = Object.freeze({ value: null, formatted: DATA_UNAVAILABLE, expr: null, series: [], datasource: null, relatedPanel: null })
+
+// Try each query in order until one returns a usable number.
+async function resolveMetric(prometheusUid, key, definition) {
+  const datasource = { type: 'prometheus', uid: prometheusUid }
+  let matched = null
+
+  for (const expr of definition.exprs) {
+    try {
+      const response = await queryDatasource(
+        datasource,
+        [{ refId: 'A', datasource, expr, instant: true, range: false }],
+        { from: 'now-15m', to: 'now' },
+      )
+      const value = extractInstantValue(response, 'A')
+      logMetricMapping(definition.label, { expr, rawValue: value })
+      if (value !== null) {
+        matched = { expr, value }
+        break
+      }
+    } catch (error) {
+      logMetricMapping(definition.label, { expr, error: error.message })
+    }
+  }
+
+  if (!matched) return { ...UNAVAILABLE_METRIC, datasource }
+
+  let series = []
+  try {
+    const historyResponse = await queryDatasource(
+      datasource,
+      [{ refId: 'A', datasource, expr: matched.expr, instant: false, range: true }],
+      { from: HISTORY_WINDOW, to: 'now', maxDataPoints: HISTORY_MAX_POINTS * 4 },
+    )
+    series = extractSeries(historyResponse, 'A', HISTORY_MAX_POINTS)
+    logMetricMapping(`${definition.label} history`, { points: series.length, from: HISTORY_WINDOW })
+  } catch (error) {
+    logMetricMapping(`${definition.label} history`, { error: error.message })
+  }
+
+  const format = FORMATTERS[definition.unit]
+  return {
+    value: matched.value,
+    formatted: format(matched.value),
+    expr: matched.expr,
+    series,
+    datasource,
+    relatedPanel: definition.relatedPanel,
+  }
+}
+
+
+// Grafana built-in alertmanager — number of currently firing alerts.
+async function getGrafanaFiringAlerts() {
+  try {
+    const alerts = await grafanaRequest('GET', '/api/alertmanager/grafana/api/v2/alerts')
+    const items = Array.isArray(alerts) ? alerts : []
+    const firing = items.filter((item) => item && item.status && item.status.state === 'active').length
+    logMetricMapping('Active Alerts (grafana-alertmanager)', { firing, total: items.length })
+    return { firing, total: items.length }
+  } catch (error) {
+    logMetricMapping('Active Alerts (grafana-alertmanager)', { error: error.message })
+    return null
+  }
+}
+
+// Panel catalog — every dashboard UID + panel ID discovered in Grafana.
+function collectPanelCatalog(details) {
+  const catalog = []
+  details.forEach((entry) => {
+    const dash = entry && entry.dashboard
+    if (!dash) return
+    const walk = (panels) => {
+      if (!Array.isArray(panels)) return
+      panels.forEach((panel) => {
+        if (!panel) return
+        if (panel.type === 'row') {
+          walk(panel.panels)
+          return
+        }
+        catalog.push({
+          dashboardUid: dash.uid,
+          dashboardTitle: dash.title,
+          panelId: panel.id,
+          panelTitle: panel.title || '',
+          panelType: panel.type,
+        })
+      })
+    }
+    walk(dash.panels)
+  })
+  return catalog
 }
 
 function withUnavailablePayload(payload) {
@@ -74,95 +316,131 @@ function withUnavailablePayload(payload) {
   }
 }
 
-function flattenPanels(panels) {
-  const titles = []
-  const walk = (items) => {
-    if (!Array.isArray(items)) return
-    items.forEach((panel) => {
-      if (panel && typeof panel.title === 'string') titles.push(panel.title)
-      if (panel && Array.isArray(panel.panels)) walk(panel.panels)
-    })
-  }
-  walk(panels)
-  return titles
-}
 
-function extractMetricFromPanelTitles(panelTitles, aliases) {
-  const normalized = panelTitles
-    .map((title) => String(title || '').trim())
-    .filter(Boolean)
-
-  for (const alias of aliases) {
-    const match = normalized.find((title) => title.toLowerCase().includes(alias.toLowerCase()))
-    if (match) return match
+async function getGrafanaSnapshot(force = false) {
+  if (!force && cachedSnapshot && Date.now() - cachedAt < CACHE_TTL_MS) {
+    console.log('[Grafana] snapshot served from cache')
+    return cachedSnapshot
   }
 
-  return null
-}
-
-async function getGrafanaSnapshot() {
   try {
-    const health = await grafanaRequest('/api/health')
-    const dashboards = await grafanaRequest('/api/search?type=dash-db')
-    const datasources = await grafanaRequest('/api/datasources')
+    const health = await grafanaRequest('GET', '/api/health')
+    const dashboards = await grafanaRequest('GET', '/api/search?type=dash-db')
+    const datasources = await grafanaRequest('GET', '/api/datasources')
 
     const dashboardItems = Array.isArray(dashboards) ? dashboards : []
     const datasourceItems = Array.isArray(datasources) ? datasources : []
-    const dashboardDetails = await Promise.all(
-      dashboardItems.slice(0, 5).map(async (item) => {
-        const uid = item && item.uid ? item.uid : null
-        if (!uid) return null
+    const prometheus = datasourceItems.find((item) => item && item.type === 'prometheus')
+
+    if (!prometheus) {
+      throw new Error('No prometheus datasource found in Grafana.')
+    }
+
+    const dashboardDetails = (await Promise.all(
+      dashboardItems.map(async (item) => {
+        if (!item || !item.uid) return null
         try {
-          return await grafanaRequest(`/api/dashboards/uid/${encodeURIComponent(uid)}`)
+          return await grafanaRequest('GET', `/api/dashboards/uid/${encodeURIComponent(item.uid)}`)
         } catch (error) {
-          console.warn('[Grafana] dashboard detail request failed for uid:', uid, error.message)
+          console.warn('[Grafana] dashboard detail failed for uid:', item.uid, error.message)
           return null
         }
       }),
-    )
+    )).filter(Boolean)
 
-    const panelTitles = dashboardDetails.flatMap((entry) => {
-      if (!entry || !entry.dashboard || !Array.isArray(entry.dashboard.panels)) return []
-      return flattenPanels(entry.dashboard.panels)
+    const panelCatalog = collectPanelCatalog(dashboardDetails)
+    console.log(`[Grafana] panel catalog: ${panelCatalog.length} panels across ${dashboardItems.length} dashboards`)
+    panelCatalog.forEach((panel) => {
+      console.log(`[Grafana] panel dashboardUid=${panel.dashboardUid} panelId=${panel.panelId} title="${panel.panelTitle}" (${panel.panelType})`)
     })
 
-    const dashboardCount = dashboardItems.length
-    const datasourceCount = datasourceItems.length
-    const panelCount = panelTitles.length
-    const grafanaStatus = health && health.status ? health.status : 'ok'
+    const metricKeys = Object.keys(METRIC_QUERIES)
+    const outcomes = await Promise.allSettled(metricKeys.map((key) => resolveMetric(prometheus.uid, key, METRIC_QUERIES[key])))
+    const metrics = {}
+    metricKeys.forEach((key, index) => {
+      const outcome = outcomes[index]
+      metrics[key] = outcome.status === 'fulfilled' && outcome.value ? outcome.value : { ...UNAVAILABLE_METRIC }
+    })
 
-    const liveValues = {
-      cpu: dashboardCount > 0 ? dashboardCount : 'Data unavailable',
-      ram: datasourceCount > 0 ? datasourceCount : 'Data unavailable',
-      disk: panelCount > 0 ? panelCount : 'Data unavailable',
-      traffic: `${dashboardCount} dashboards`,
-      devices: dashboardCount > 0 ? dashboardCount : 'Data unavailable',
-      servers: datasourceCount > 0 ? datasourceCount : 'Data unavailable',
-      availability: grafanaStatus,
-      securityScore: panelCount > 0 ? `${panelCount} panels` : 'Data unavailable',
+    // Scraped device/server counts straight from Prometheus.
+    const promDs = { type: 'prometheus', uid: prometheus.uid }
+    let deviceCount = null
+    let serverCount = null
+    try {
+      deviceCount = extractInstantValue(
+        await queryDatasource(promDs, [{ refId: 'A', datasource: promDs, expr: 'count(up)', instant: true, range: false }], { from: 'now-15m', to: 'now' }),
+        'A',
+      )
+      serverCount = extractInstantValue(
+        await queryDatasource(promDs, [{ refId: 'A', datasource: promDs, expr: 'count(up == 1)', instant: true, range: false }], { from: 'now-15m', to: 'now' }),
+        'A',
+      )
+    } catch (error) {
+      logMetricMapping('Device Count', { error: error.message })
     }
 
+    const firing = await getGrafanaFiringAlerts()
+    const grafanaStatus = health && health.status ? health.status : 'ok'
     const lastUpdated = new Date().toISOString()
 
-    return {
-      dashboard: {
-        cpu: liveValues.cpu,
-        ram: liveValues.ram,
-        disk: liveValues.disk,
-        traffic: liveValues.traffic,
-        alerts: dashboardCount > 0 ? dashboardCount : 'Data unavailable',
-        devices: liveValues.devices,
-        servers: liveValues.servers,
-        availability: liveValues.availability,
-        securityScore: liveValues.securityScore,
-        lastUpdated,
-        grafanaStatus,
-        dashboardCount,
-        datasourceCount,
-        panelCount,
+    const metricSources = {}
+    metricKeys.forEach((key) => {
+      metricSources[key] = {
+        expr: metrics[key].expr,
+        datasource: metrics[key].datasource,
+        relatedPanel: metrics[key].relatedPanel,
+        unit: METRIC_QUERIES[key].unit,
+      }
+    })
+
+    const dashboard = {
+      cpu: metrics.cpu.formatted,
+      ram: metrics.ram.formatted,
+      disk: metrics.disk.formatted,
+      traffic: metrics.traffic.formatted,
+      trafficBps: metrics.traffic.value,
+      // Grafana alertmanager firing count — server/index.cjs overrides this with
+      // the authoritative open-alert count from the alerts table.
+      alerts: firing ? firing.firing : DATA_UNAVAILABLE,
+      alertsSource: firing ? 'grafana-alertmanager' : DATA_UNAVAILABLE,
+      grafanaFiringAlerts: firing ? firing.firing : DATA_UNAVAILABLE,
+      devices: deviceCount !== null ? deviceCount : DATA_UNAVAILABLE,
+      servers: serverCount !== null ? serverCount : DATA_UNAVAILABLE,
+      availability: metrics.availability.formatted,
+      securityScore: DATA_UNAVAILABLE,
+      history: {
+        cpu: metrics.cpu.series,
+        ram: metrics.ram.series,
+        disk: metrics.disk.series,
+        traffic: metrics.traffic.series,
+        availability: metrics.availability.series,
       },
+      metricSources,
+      lastUpdated,
+      grafanaStatus,
+      dashboardCount: dashboardItems.length,
+      datasourceCount: datasourceItems.length,
+      panelCount: panelCatalog.length,
+      prometheusUid: prometheus.uid,
+      dataUnavailable: false,
+    }
+
+    logMetricMapping('dashboard payload', {
+      cpu: dashboard.cpu,
+      ram: dashboard.ram,
+      disk: dashboard.disk,
+      traffic: dashboard.traffic,
+      availability: dashboard.availability,
+      alerts: dashboard.alerts,
+      devices: dashboard.devices,
+      servers: dashboard.servers,
+    })
+
+
+    const snapshot = {
+      dashboard,
       monitoring: {
-        devices: dashboardItems.slice(0, 5).map((item) => ({
+        devices: dashboardItems.slice(0, 6).map((item) => ({
           id: item.uid || item.id,
           name: item.title || 'Grafana dashboard',
           type: 'Dashboard',
@@ -172,58 +450,68 @@ async function getGrafanaSnapshot() {
         })),
         healthStatus: grafanaStatus,
         reachability: 'Reachable',
-        performanceMetrics: { latency: 'Live', cpu: liveValues.cpu, memory: liveValues.ram, disk: liveValues.disk },
+        performanceMetrics: {
+          latency: 'Live',
+          cpu: dashboard.cpu,
+          memory: dashboard.ram,
+          disk: dashboard.disk,
+        },
       },
       alerts: {
-        summary: { active: dashboardCount, critical: datasourceCount, warning: panelCount, information: grafanaStatus },
-        items: dashboardItems.slice(0, 3).map((item) => ({
-          id: item.id || item.uid,
-          title: item.title || 'Grafana dashboard',
-          device: item.title || 'Grafana',
-          severity: 'Information',
-          status: 'Active',
-          time: 'Live',
-          owner: 'Grafana',
-        })),
+        summary: {
+          active: firing ? firing.firing : DATA_UNAVAILABLE,
+          critical: DATA_UNAVAILABLE,
+          warning: DATA_UNAVAILABLE,
+          information: DATA_UNAVAILABLE,
+        },
+        items: [],
       },
       security: {
-        securityScore: liveValues.securityScore,
-        activeThreats: dashboardCount > 0 ? dashboardCount : 'Data unavailable',
-        vulnerabilityCount: datasourceCount > 0 ? datasourceCount : 'Data unavailable',
+        securityScore: DATA_UNAVAILABLE,
+        activeThreats: DATA_UNAVAILABLE,
+        vulnerabilityCount: DATA_UNAVAILABLE,
         securityHealth: grafanaStatus,
-        events: panelTitles.slice(0, 3).map((title, index) => ({ time: 'Live', event: title, source: 'Grafana', impact: `Panel ${index + 1}` })),
+        events: [],
       },
+      panelCatalog,
     }
+
+    cachedSnapshot = snapshot
+    cachedAt = Date.now()
+    return snapshot
   } catch (error) {
     console.error('[Grafana] authentication or query failed:', error.message)
+    cachedSnapshot = null
+    cachedAt = 0
     return {
       dashboard: withUnavailablePayload({
-        cpu: 'Data unavailable',
-        ram: 'Data unavailable',
-        disk: 'Data unavailable',
-        traffic: 'Data unavailable',
-        alerts: 'Data unavailable',
-        devices: 'Data unavailable',
-        servers: 'Data unavailable',
-        availability: 'Data unavailable',
-        securityScore: 'Data unavailable',
+        cpu: DATA_UNAVAILABLE,
+        ram: DATA_UNAVAILABLE,
+        disk: DATA_UNAVAILABLE,
+        traffic: DATA_UNAVAILABLE,
+        alerts: DATA_UNAVAILABLE,
+        devices: DATA_UNAVAILABLE,
+        servers: DATA_UNAVAILABLE,
+        availability: DATA_UNAVAILABLE,
+        securityScore: DATA_UNAVAILABLE,
+        history: { cpu: [], ram: [], disk: [], traffic: [], availability: [] },
         lastUpdated: new Date().toISOString(),
       }),
       monitoring: withUnavailablePayload({
         devices: [],
-        healthStatus: 'Data unavailable',
-        reachability: 'Data unavailable',
-        performanceMetrics: { latency: 'Data unavailable', cpu: 'Data unavailable', memory: 'Data unavailable', disk: 'Data unavailable' },
+        healthStatus: DATA_UNAVAILABLE,
+        reachability: DATA_UNAVAILABLE,
+        performanceMetrics: { latency: DATA_UNAVAILABLE, cpu: DATA_UNAVAILABLE, memory: DATA_UNAVAILABLE, disk: DATA_UNAVAILABLE },
       }),
       alerts: withUnavailablePayload({
-        summary: { active: 'Data unavailable', critical: 'Data unavailable', warning: 'Data unavailable', information: 'Data unavailable' },
+        summary: { active: DATA_UNAVAILABLE, critical: DATA_UNAVAILABLE, warning: DATA_UNAVAILABLE, information: DATA_UNAVAILABLE },
         items: [],
       }),
       security: withUnavailablePayload({
-        securityScore: 'Data unavailable',
-        activeThreats: 'Data unavailable',
-        vulnerabilityCount: 'Data unavailable',
-        securityHealth: 'Data unavailable',
+        securityScore: DATA_UNAVAILABLE,
+        activeThreats: DATA_UNAVAILABLE,
+        vulnerabilityCount: DATA_UNAVAILABLE,
+        securityHealth: DATA_UNAVAILABLE,
         events: [],
       }),
     }
@@ -234,3 +522,4 @@ module.exports = {
   getGrafanaSnapshot,
   getGrafanaConfig,
 }
+

@@ -1,0 +1,429 @@
+nohup: ignoring input
+
+> noc-automation@1.0.0 dev
+> vite "--host" "0.0.0.0" "--port" "5173"
+
+
+  vite v2.9.18 dev server running at:
+
+  > Local:    http://localhost:5173/
+  > Network:  http://192.168.1.5:5173/
+
+  ready in 517ms.
+
+5:10:52 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:10:52 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:10:52 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:10:54 PM [vite] http proxy error:
+Error: socket hang up
+    at connResetException (internal/errors.js:609:14)
+    at Socket.socketCloseListener (_http_client.js:401:25)
+    at Socket.emit (events.js:326:22)
+    at TCP.<anonymous> (net.js:676:12)
+5:10:54 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:10:54 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:10:54 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:11:14 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:11:14 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:11:14 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:12:54 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:12:54 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:12:54 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:13:14 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:13:14 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:13:14 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:14:54 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:14:54 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:14:54 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:15:14 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:15:14 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:15:14 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:16:04 PM [vite] vite.config.js changed, restarting server...
+5:16:04 PM [vite] server restarted.
+5:16:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:16:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:16:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:16:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:16:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:16:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:18:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:18:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:18:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:18:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:18:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:18:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:20:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:20:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:20:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:20:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:20:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:20:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:22:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:22:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:22:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:22:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:22:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:22:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:24:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:24:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:24:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:24:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:24:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:24:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:26:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:26:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:26:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:26:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:26:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:26:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:28:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:28:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:28:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:28:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:28:05 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:28:08 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:28:08 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:28:08 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:28:22 PM [vite] page reload dist/index.html
+5:28:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:28:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:28:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:30:08 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:30:08 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:30:08 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:30:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:30:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:30:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:32:08 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:32:08 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:32:08 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:32:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:32:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:32:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:34:08 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:34:08 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:34:08 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:34:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:34:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:34:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:36:08 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:36:08 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:36:08 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:36:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:36:28 PM [vite] http proxy error:
+Error: socket hang up
+    at connResetException (internal/errors.js:609:14)
+    at Socket.socketCloseListener (_http_client.js:401:25)
+    at Socket.emit (events.js:326:22)
+    at TCP.<anonymous> (net.js:676:12)
+5:36:28 PM [vite] http proxy error:
+Error: socket hang up
+    at connResetException (internal/errors.js:609:14)
+    at Socket.socketCloseListener (_http_client.js:401:25)
+    at Socket.emit (events.js:326:22)
+    at TCP.<anonymous> (net.js:676:12)
+5:36:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:36:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:36:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:36:48 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:36:48 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:36:48 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:38:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:38:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:38:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:38:48 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:38:48 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:38:48 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:40:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:40:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:40:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:40:48 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:40:48 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:40:48 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:41:03 PM [vite] hmr update /src/App.jsx
+hmr update /src/index.css
+5:42:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:42:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:42:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:42:48 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:42:48 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:42:48 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:44:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:44:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:44:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:44:48 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:44:48 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:44:48 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:46:28 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:46:28 PM [vite] http proxy error:
+Error: socket hang up
+    at connResetException (internal/errors.js:609:14)
+    at Socket.socketCloseListener (_http_client.js:401:25)
+    at Socket.emit (events.js:326:22)
+    at TCP.<anonymous> (net.js:676:12)
+5:46:28 PM [vite] http proxy error:
+Error: socket hang up
+    at connResetException (internal/errors.js:609:14)
+    at Socket.socketCloseListener (_http_client.js:401:25)
+    at Socket.emit (events.js:326:22)
+    at TCP.<anonymous> (net.js:676:12)
+5:46:32 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:46:32 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:46:32 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:46:52 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:46:52 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:46:52 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
