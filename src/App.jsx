@@ -2,12 +2,13 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { Activity, AlertTriangle, Bell, Check, ChevronDown, Cloud, Cpu, Database, Download, FileText, HardDrive, LayoutDashboard, LockKeyhole, LogOut, Menu, Moon, Network, Search, Server, Settings, ShieldCheck, Sun, UserPlus, Users, X, Zap } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { mockApi } from './mockApi'
+import { api } from './mockApi'
 
 const TOKEN_KEY = 'noc-automation-token'
 const USER_KEY = 'noc-automation-user'
 const LOCAL_AUTH_KEY = 'noc-automation-local-auth'
 const DATA_UNAVAILABLE = 'Data unavailable'
+const DATA_LABEL_UNAVAILABLE = 'Data unavailable'
 const defaultDashboardData = { cpu: 'Data unavailable', ram: 'Data unavailable', disk: 'Data unavailable', traffic: 'Data unavailable', alerts: 'Data unavailable', devices: 'Data unavailable', servers: 'Data unavailable', availability: 'Data unavailable', securityScore: 'Data unavailable', lastUpdated: 'Data unavailable' }
 const demoAccounts = {
   svtelecom: { password: 'Admin123!', name: 'NOC SAO VÀNG', role: 'Administrator', username: 'svtelecom' },
@@ -163,13 +164,26 @@ function RoleSelect({ value, onChange }) { return <label className="field">Works
 
 function AppShell() {
   const [open, setOpen] = useState(false); const [darkMode, setDarkMode] = useState(() => localStorage.getItem('noc-automation-theme') !== 'light'); const [notificationOpen, setNotificationOpen] = useState(false); const [profileMenuOpen, setProfileMenuOpen] = useState(false); const [notificationFilter, setNotificationFilter] = useState('All'); const [notifications, setNotifications] = useState([
-    { id: 1, title: 'Database replication lag', category: 'Alert Notifications', detail: 'Finance DB cluster is six seconds behind target. Investigate the failover path.', time: '2 min ago', unread: true, owner: 'Jordan Miller', type: 'Escalation' },
-    { id: 2, title: 'Storage expansion scheduled', category: 'Assignment', detail: 'Priya Shah has been assigned to complete the cold-storage capacity review.', time: '18 min ago', unread: true, owner: 'Priya Shah', type: 'Assignment' },
-    { id: 3, title: 'Security review requested', category: 'Mentions', detail: '@admin Please confirm the firewall policy approval before 18:00 UTC.', time: '42 min ago', unread: false, owner: 'Samira Khan', type: 'Mentions' },
-    { id: 4, title: 'High latency burst on API edge', category: 'Alert Notifications', detail: 'Customer portal latency exceeded the 250 ms threshold for the last six minutes.', time: '1 hr ago', unread: true, owner: 'Diego Ruiz', type: 'Escalation' },
-    { id: 5, title: 'Traffic shift approved', category: 'Assignment', detail: 'Operations approved the cutover plan and routing changes for the regional failover.', time: '2 hrs ago', unread: false, owner: 'NOC Team', type: 'Assignment' },
   ]); const { user, signOut } = useAuth(); const location = useLocation(); const navigate = useNavigate(); const displayName = user?.name || 'NOC SAO VÀNG'; const displayRole = user?.role || 'Administrator'; const displayUsername = user?.username || 'svtelecom'
   useEffect(() => { window.scrollTo(0, 0); setOpen(false) }, [location.pathname])
+  useEffect(() => {
+    let active = true
+    api.getAlerts().then((items) => {
+      if (!active) return
+      const liveNotifications = (Array.isArray(items) ? items : []).slice(0, 5).map((item, index) => ({
+        id: item.id ?? index,
+        title: item.title,
+        category: 'Alert Notifications',
+        detail: item.summary || item.detail || '',
+        time: item.time,
+        unread: item.status === 'Open' || item.status === 'Active' || item.status === 'Acknowledged',
+        owner: item.owner || 'Grafana',
+        type: item.severity === 'Critical' ? 'Escalation' : 'Assignment',
+      }))
+      setNotifications(liveNotifications)
+    })
+    return () => { active = false }
+  }, [])
   useEffect(() => {
     const handlePointerDown = (event) => {
       if (!event.target.closest('.user-menu-wrap')) {
@@ -336,23 +350,41 @@ function MonitoringTable() {
 }
 
 function AssetInventoryModule() {
-  const rows = [
-    { name: 'PRD-WEB-01', type: 'Server', vendor: 'Dell', model: 'PowerEdge R760', serial: 'DELL-RT-10784', status: 'Operational', warranty: '2028-02-09' },
-    { name: 'RTR-EDGE-12', type: 'Router', vendor: 'Cisco', model: 'ASR 1002-X', serial: 'CISCO-9K-20491', status: 'Operational', warranty: '2027-11-14' },
-    { name: 'SQL-CORE-02', type: 'Database', vendor: 'HPE', model: 'Apollo 4510 Gen10', serial: 'HPE-DB-55781', status: 'Warning', warranty: '2027-05-22' },
-    { name: 'FILE-OPS-04', type: 'Storage', vendor: 'NetApp', model: 'AFF A800', serial: 'NETAPP-4187', status: 'Degraded', warranty: '2026-12-03' },
-    { name: 'VPN-GW-03', type: 'Security', vendor: 'Palo Alto', model: 'PA-3220', serial: 'PAN-43199', status: 'Operational', warranty: '2028-03-08' },
-  ]
+  const [rows, setRows] = useState([])
+  useEffect(() => {
+    let active = true
+    api.getDevices().then((devices) => {
+      if (!active) return
+      setRows((Array.isArray(devices) ? devices : []).map((device) => ({
+        name: device.name || device.id || '—',
+        type: device.type || '—',
+        vendor: device.vendor || '—',
+        model: device.model || '—',
+        serial: device.id || '—',
+        status: device.status || 'Operational',
+        warranty: device.warranty || '—',
+      })))
+    })
+    return () => { active = false }
+  }, [])
 
-  return <section className="dashboard-card inventory-card"><CardHeader eyebrow="Asset inventory" title="Managed hardware" /><div className="inventory-table-wrap"><table className="inventory-table"><thead><tr><th>Asset Name</th><th>Type</th><th>Vendor</th><th>Model</th><th>Serial Number</th><th>Status</th><th>Warranty</th></tr></thead><tbody>{rows.map((row) => <tr key={row.serial}><td>{row.name}</td><td>{row.type}</td><td>{row.vendor}</td><td>{row.model}</td><td>{row.serial}</td><td><span className={`status-pill ${row.status === 'Operational' ? 'green' : row.status === 'Warning' ? 'amber' : 'red'}`}>{row.status}</span></td><td>{row.warranty}</td></tr>)}</tbody></table></div></section>
+  return <section className="dashboard-card inventory-card"><CardHeader eyebrow="Asset inventory" title="Managed hardware" /><div className="inventory-table-wrap"><table className="inventory-table"><thead><tr><th>Asset Name</th><th>Type</th><th>Vendor</th><th>Model</th><th>Serial Number</th><th>Status</th><th>Warranty</th></tr></thead><tbody>{rows.length ? rows.map((row) => <tr key={row.serial}><td>{row.name}</td><td>{row.type}</td><td>{row.vendor}</td><td>{row.model}</td><td>{row.serial}</td><td><span className={`status-pill ${row.status === 'Operational' ? 'green' : row.status === 'Warning' ? 'amber' : 'red'}`}>{row.status}</span></td><td>{row.warranty}</td></tr>) : <tr><td colSpan="7">No live assets reported by Grafana.</td></tr>}</tbody></table></div></section>
 }
 
 function AlertConsole() {
-  const alerts = [
-    { level: 'Critical', title: 'Database replication lag detected', host: 'Finance DB Cluster', summary: 'Primary node is 6s behind the standby cluster.', time: '2 min ago' },
-    { level: 'Warning', title: 'Storage capacity threshold reached', host: 'Storage Array', summary: 'Volume utilization crossed 80% on the cold storage tier.', time: '12 min ago' },
-    { level: 'Information', title: 'Certificate auto-renewal successful', host: 'API Gateway', summary: 'TLS certificate renewed without service interruption.', time: '1 hr ago' },
-  ]
+  const [liveAlerts, setLiveAlerts] = useState([])
+  useEffect(() => {
+    let active = true
+    api.getAlerts().then((items) => { if (active) setLiveAlerts(Array.isArray(items) ? items : []) })
+    return () => { active = false }
+  }, [])
+  const alerts = liveAlerts.slice(0, 3).map((item) => ({
+    level: item.severity || 'Information',
+    title: item.title,
+    host: item.device,
+    summary: item.summary || item.detail || '',
+    time: item.time,
+  }))
 
   return <section className="dashboard-card alert-console-card"><CardHeader eyebrow="Response center" title="Alert console" /><div className="alert-console-filters"><span className="active">Critical</span><span>Warning</span><span>Information</span></div><div className="alert-console-list">{alerts.map((alert) => <div key={`${alert.level}-${alert.title}`} className="alert-console-item"><div className={`alert-icon ${alert.level.toLowerCase()}`}><AlertTriangle size={14} /></div><div className="alert-console-copy"><div className="alert-console-head"><strong>{alert.title}</strong><span className={`alert-badge ${alert.level.toLowerCase()}`}>{alert.level}</span></div><small>{alert.host}</small><p>{alert.summary}</p><time>{alert.time}</time></div></div>)}</div></section>
 }
@@ -360,30 +392,36 @@ function AlertConsole() {
 function PageHeader({ eyebrow, title, text, action }) { return <div className="page-heading"><div><span className="auth-eyebrow">{eyebrow}</span><h1>{title}</h1><p>{text}</p></div>{action && (typeof action === 'string' ? <button className="outline-button">{action}</button> : action)}</div> }
 
 function SLADashboardModule() {
+  const [snapshot, setSnapshot] = useState(null)
+  const [alertCount, setAlertCount] = useState(null)
+  useEffect(() => {
+    let active = true
+    api.getDashboard().then((data) => { if (active) setSnapshot(data || {}) })
+    api.getAlerts().then((items) => { if (active) setAlertCount(Array.isArray(items) ? items.length : 0) })
+    return () => { active = false }
+  }, [])
+
+  const availability = snapshot ? Number.parseFloat(snapshot.availability) : NaN
+  const availabilityValue = Number.isFinite(availability) ? availability : null
+  const liveTone = availabilityValue === null ? 'amber' : 'green'
+
   const kpis = [
-    { label: 'Monthly Availability', value: '99.98%', change: '+0.12%', detail: 'vs last month', tone: 'green' },
-    { label: 'MTTR', value: '14 min', change: '-3 min', detail: 'faster resolution', tone: 'amber' },
-    { label: 'MTBF', value: '342 hrs', change: '+48 hrs', detail: 'reliability trend', tone: 'cyan' },
-    { label: 'Incident Count', value: '27', change: '-9%', detail: 'this period', tone: 'blue' },
-    { label: 'Service Health', value: '96%', change: '+2 pts', detail: 'service coverage', tone: 'green' },
+    { label: 'Monthly Availability', value: availabilityValue === null ? DATA_LABEL_UNAVAILABLE : `${availabilityValue}%`, change: availabilityValue === null ? '—' : 'live', detail: 'Grafana snapshot', tone: liveTone },
+    { label: 'MTTR', value: DATA_LABEL_UNAVAILABLE, change: '—', detail: 'requires alert timeline data', tone: 'amber' },
+    { label: 'MTBF', value: DATA_LABEL_UNAVAILABLE, change: '—', detail: 'requires incident history', tone: 'amber' },
+    { label: 'Incident Count', value: alertCount === null ? '—' : String(alertCount), change: 'live', detail: 'open alerts in queue', tone: 'blue' },
+    { label: 'Service Health', value: availabilityValue === null ? DATA_LABEL_UNAVAILABLE : `${Math.round(availabilityValue)}%`, change: availabilityValue === null ? '—' : 'live', detail: 'Grafana snapshot', tone: liveTone },
   ]
 
-  const gaugeData = [
-    { label: 'API Platform', value: 99.8, target: 99.9, color: '#28d8c0' },
-    { label: 'Customer Portal', value: 99.6, target: 99.7, color: '#6e9ee8' },
-    { label: 'Database Core', value: 98.9, target: 99.5, color: '#e2a84d' },
-  ]
+  const gaugeData = availabilityValue === null
+    ? []
+    : [{ label: 'Overall availability', value: availabilityValue, target: 99.9, color: '#28d8c0' }]
 
-  const trendData = [
-    { month: 'Jan', availability: 99.66, mttr: 19, incidents: 34 },
-    { month: 'Feb', availability: 99.72, mttr: 17, incidents: 31 },
-    { month: 'Mar', availability: 99.79, mttr: 16, incidents: 30 },
-    { month: 'Apr', availability: 99.84, mttr: 15, incidents: 28 },
-    { month: 'May', availability: 99.9, mttr: 14, incidents: 26 },
-    { month: 'Jun', availability: 99.98, mttr: 13, incidents: 24 },
-  ]
+  const trendData = availabilityValue === null
+    ? []
+    : [{ month: 'Now', availability: availabilityValue, mttr: alertCount ?? 0, incidents: alertCount ?? 0 }]
 
-  return <section className="dashboard-card sla-dashboard"><div className="card-header"><div><span className="auth-eyebrow">SLA performance</span><h2>Service assurance</h2></div><a href="#reports">View report</a></div><div className="sla-kpi-grid">{kpis.map((item) => <div key={item.label} className="sla-kpi-card"><span>{item.label}</span><strong>{item.value}</strong><div><b className={item.tone}>{item.change}</b><small>{item.detail}</small></div></div>)}</div><div className="sla-body"><div className="sla-gauges"><div className="sla-gauges-header"><h3>Service health</h3><span>Current threshold</span></div>{gaugeData.map((item) => <GaugeCard key={item.label} {...item} />)}</div><div className="sla-trend"><div className="sla-gauges-header"><h3>Monthly trends</h3><span>Last 6 months</span></div><ResponsiveContainer width="100%" height={210}><AreaChart data={trendData} margin={{ top: 12, right: 12, left: -20, bottom: 0 }}><defs><linearGradient id="sla-trend-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#28d8c0" stopOpacity="0.38" /><stop offset="100%" stopColor="#28d8c0" stopOpacity="0.04" /></linearGradient></defs><CartesianGrid vertical={false} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 3" /><XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} /><YAxis tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} domain={[99.5, 100]} /><Tooltip contentStyle={{ backgroundColor: '#0d2436', border: '1px solid rgba(148,163,184,0.2)', borderRadius: 12, color: '#edf6fb' }} /><Area type="monotone" dataKey="availability" name="Availability" stroke="#28d8c0" fill="url(#sla-trend-fill)" strokeWidth={2.5} /></AreaChart></ResponsiveContainer></div></div></section>
+  return <section className="dashboard-card sla-dashboard"><div className="card-header"><div><span className="auth-eyebrow">SLA performance</span><h2>Service assurance</h2></div><a href="#reports">View report</a></div><div className="sla-kpi-grid">{kpis.map((item) => <div key={item.label} className="sla-kpi-card"><span>{item.label}</span><strong>{item.value}</strong><div><b className={item.tone}>{item.change}</b><small>{item.detail}</small></div></div>)}</div><div className="sla-body"><div className="sla-gauges"><div className="sla-gauges-header"><h3>Service health</h3><span>Current threshold</span></div>{gaugeData.length ? gaugeData.map((item) => <GaugeCard key={item.label} {...item} />) : <div className="sla-gauge-card"><span>Grafana availability unavailable</span></div>}</div><div className="sla-trend"><div className="sla-gauges-header"><h3>Monthly trends</h3><span>Last 6 months</span></div><ResponsiveContainer width="100%" height={210}><AreaChart data={trendData} margin={{ top: 12, right: 12, left: -20, bottom: 0 }}><defs><linearGradient id="sla-trend-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#28d8c0" stopOpacity="0.38" /><stop offset="100%" stopColor="#28d8c0" stopOpacity="0.04" /></linearGradient></defs><CartesianGrid vertical={false} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 3" /><XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} /><YAxis tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} domain={[99.5, 100]} /><Tooltip contentStyle={{ backgroundColor: '#0d2436', border: '1px solid rgba(148,163,184,0.2)', borderRadius: 12, color: '#edf6fb' }} /><Area type="monotone" dataKey="availability" name="Availability" stroke="#28d8c0" fill="url(#sla-trend-fill)" strokeWidth={2.5} /></AreaChart></ResponsiveContainer></div></div></section>
 }
 
 function GaugeCard({ label, value, target, color }) {
@@ -396,18 +434,20 @@ function GaugeCard({ label, value, target, color }) {
 }
 
 function ReportsPage() {
-  const [report, setReport] = useState({ daily: 99.98, weekly: 99.96, monthly: 99.98, incidents: 38, sla: 99.9, availability: [99.74, 99.79, 99.82, 99.87, 99.94, 99.96, 99.98] })
+  const [report, setReport] = useState({ daily: null, weekly: null, monthly: null, incidents: 0, sla: null })
+
+  const fmtPct = (value) => (value === null || value === undefined || typeof value === 'string') ? String(value ?? '—') : `${value}%`
 
   useEffect(() => {
     const loadReport = async () => {
-      const nextReport = await safeAsyncCall(() => mockApi.getReports(), report)
+      const nextReport = await safeAsyncCall(() => api.getReports(), report)
       if (nextReport) setReport({ ...report, ...nextReport })
     }
     loadReport()
   }, [])
 
   const exportPdf = (title) => {
-    const content = `NOC Automation ${title}\nAvailability: ${report.monthly || 99.98}%\nSLA target: ${report.sla || 99.9}%\nIncidents resolved: ${report.incidents || 38}`
+    const content = `NOC Automation ${title}\nAvailability (live Grafana): ${fmtPct(report.monthly)}\nSLA target: ${fmtPct(report.sla)}\nOpen alerts (live): ${report.incidents ?? 0}`
     const blob = new Blob([content], { type: 'application/pdf' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -417,9 +457,10 @@ function ReportsPage() {
     URL.revokeObjectURL(url)
   }
 
-  const availabilityData = [{ name: 'W1', value: 99.7 }, { name: 'W2', value: 99.8 }, { name: 'W3', value: 99.84 }, { name: 'W4', value: 99.88 }, { name: 'W5', value: 99.92 }, { name: 'W6', value: 99.95 }, { name: 'W7', value: 99.98 }]
+  const liveAvailability = Number.parseFloat(report.monthly)
+  const availabilityData = Number.isFinite(liveAvailability) ? [{ name: 'Live', value: liveAvailability }] : []
 
-  return <div className="dashboard"><PageHeader eyebrow="Reports" title={<>Operational clarity<br /><span>on demand.</span></>} text="Shareable performance summaries for infrastructure, availability, and response." action={<button className="outline-button" onClick={() => exportPdf('Executive')}><Download size={15} />Export PDF</button>} /><div className="report-grid"><ReportCard period="Executive" value={`${report.monthly || 99.98}%`} detail="Platform availability across core services" onDownload={() => exportPdf('Executive')} /><ReportCard period="Monthly" value={`${report.monthly || 99.98}%`} detail="Availability across the last 30 days" onDownload={() => exportPdf('Monthly')} /><ReportCard period="SLA" value={`${report.sla || 99.9}%`} detail="Service level agreement target coverage" onDownload={() => exportPdf('SLA')} /></div><section className="dashboard-card report-chart"><CardHeader eyebrow="Monthly availability" title="Service availability" /><div className="report-chart-shell"><ResponsiveContainer width="100%" height={260}><AreaChart data={availabilityData} margin={{ top: 16, right: 12, left: -12, bottom: 0 }}><defs><linearGradient id="report-availability" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#28d8c0" stopOpacity="0.35" /><stop offset="100%" stopColor="#28d8c0" stopOpacity="0.05" /></linearGradient></defs><CartesianGrid vertical={false} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 3" /><XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} /><YAxis domain={[99.6, 100]} tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} /><Tooltip contentStyle={{ backgroundColor: '#0d2436', border: '1px solid rgba(148,163,184,0.2)', borderRadius: 12, color: '#edf6fb' }} /><Legend wrapperStyle={{ color: '#718190', fontSize: '10px' }} /><Area type="monotone" dataKey="value" name="Availability" stroke="#28d8c0" fill="url(#report-availability)" strokeWidth={2.5} animationDuration={900} /></AreaChart></ResponsiveContainer></div></section><div className="report-grid secondary-report-grid"><article className="dashboard-card report-summary-card"><CardHeader eyebrow="Executive report" title="Business impact" /><ul className="statement-list"><li><span>Customer uptime</span><strong>99.98%</strong></li><li><span>Incidents resolved</span><strong>{report.incidents || 38}</strong></li><li><span>MTTR</span><strong>14 min</strong></li><li><span>Risk posture</span><strong>Low</strong></li></ul></article><article className="dashboard-card report-summary-card"><CardHeader eyebrow="SLA report" title="Coverage" /><div className="sla-chart"><BarChart data={[{ name: 'Gold', value: 99.98 }, { name: 'Silver', value: 99.92 }, { name: 'Bronze', value: 99.86 }]} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}><CartesianGrid vertical={false} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 3" /><XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} /><YAxis tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} /><Tooltip /><Legend wrapperStyle={{ fontSize: '10px', color: '#718190' }} /><Bar dataKey="value" name="SLA" fill="#6e9ee8" radius={[10, 10, 0, 0]} animationDuration={900} /></BarChart></div></article></div></div> }
+  return <div className="dashboard"><PageHeader eyebrow="Reports" title={<>Operational clarity<br /><span>on demand.</span></>} text="Shareable performance summaries for infrastructure, availability, and response." action={<button className="outline-button" onClick={() => exportPdf('Executive')}><Download size={15} />Export PDF</button>} /><div className="report-grid"><ReportCard period="Executive" value={fmtPct(report.monthly)} detail="Platform availability across core services" onDownload={() => exportPdf('Executive')} /><ReportCard period="Monthly" value={fmtPct(report.monthly)} detail="Availability across the last 30 days" onDownload={() => exportPdf('Monthly')} /><ReportCard period="SLA" value={fmtPct(report.sla)} detail="Service level agreement target coverage" onDownload={() => exportPdf('SLA')} /></div><section className="dashboard-card report-chart"><CardHeader eyebrow="Monthly availability" title="Service availability" /><div className="report-chart-shell"><ResponsiveContainer width="100%" height={260}><AreaChart data={availabilityData} margin={{ top: 16, right: 12, left: -12, bottom: 0 }}><defs><linearGradient id="report-availability" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#28d8c0" stopOpacity="0.35" /><stop offset="100%" stopColor="#28d8c0" stopOpacity="0.05" /></linearGradient></defs><CartesianGrid vertical={false} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 3" /><XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} /><YAxis domain={[99.6, 100]} tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} /><Tooltip contentStyle={{ backgroundColor: '#0d2436', border: '1px solid rgba(148,163,184,0.2)', borderRadius: 12, color: '#edf6fb' }} /><Legend wrapperStyle={{ color: '#718190', fontSize: '10px' }} /><Area type="monotone" dataKey="value" name="Availability" stroke="#28d8c0" fill="url(#report-availability)" strokeWidth={2.5} animationDuration={900} /></AreaChart></ResponsiveContainer></div></section><div className="report-grid secondary-report-grid"><article className="dashboard-card report-summary-card"><CardHeader eyebrow="Executive report" title="Business impact" /><ul className="statement-list"><li><span>Customer uptime (live)</span><strong>{fmtPct(report.monthly)}</strong></li><li><span>Open alerts (live)</span><strong>{report.incidents ?? 0}</strong></li><li><span>MTTR</span><strong>Data unavailable</strong></li><li><span>Risk posture</span><strong>{Number.isFinite(Number.parseFloat(report.monthly)) ? (Number.parseFloat(report.monthly) >= 99.5 ? 'Low' : Number.parseFloat(report.monthly) >= 98 ? 'Medium' : 'High') : 'Data unavailable'}</strong></li></ul></article><article className="dashboard-card report-summary-card"><CardHeader eyebrow="SLA report" title="Coverage" /><div className="sla-chart"><BarChart data={Number.isFinite(liveAvailability) ? [{ name: 'Live', value: liveAvailability }] : []} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}><CartesianGrid vertical={false} stroke="rgba(148,163,184,0.18)" strokeDasharray="3 3" /><XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} /><YAxis tickLine={false} axisLine={false} tick={{ fill: '#718190', fontSize: 10 }} /><Tooltip /><Legend wrapperStyle={{ fontSize: '10px', color: '#718190' }} /><Bar dataKey="value" name="SLA" fill="#6e9ee8" radius={[10, 10, 0, 0]} animationDuration={900} /></BarChart></div></article></div></div> }
 function ReportCard({ period, value, detail, onDownload }) { return <article className="report-card"><span className="auth-eyebrow">{period} report</span><strong>{value}</strong><p>{detail}</p><button className="outline-button" onClick={onDownload}>Export report <Database size={14} /></button></article> }
 function AuditLogPage() {
   const auditRows = [
@@ -571,58 +612,10 @@ function DeviceDetail({ device, onClose }) {
 
   return <section className="dashboard-card device-detail"><div className="device-detail-header"><div><span className="auth-eyebrow">Device detail</span><h2>{device.name}</h2><p>{device.type} &middot; {device.ip}</p></div>{onClose && <button className="close-button" onClick={onClose} aria-label="Close detail panel"><X size={16} /></button>}</div><span className={`status-pill ${tone}`}>{status}</span><div className="detail-highlight"><div className="detail-stat"><span>Health score</span><strong>{healthScore}</strong></div><div className="detail-stat"><span>Uptime</span><strong>{device.uptime || '99.98%'}</strong></div><div className="detail-stat"><span>Latency</span><strong>{device.ping || 18} ms</strong></div></div><div className="detail-bars"><div className="usage-bar"><div><span>CPU</span><strong>{device.cpu || 0}%</strong></div><i className="cyan" style={{ width: `${device.cpu || 0}%` }} /></div><div className="usage-bar"><div><span>Memory</span><strong>{device.ram || 0}%</strong></div><i className="blue" style={{ width: `${device.ram || 0}%` }} /></div><div className="usage-bar"><div><span>Disk</span><strong>{device.disk || 0}%</strong></div><i className="amber" style={{ width: `${device.disk || 0}%` }} /></div></div><div className="detail-grid"><div><span>IP</span><strong>{device.ip}</strong></div><div><span>Location</span><strong>{device.location}</strong></div><div><span>Last check</span><strong>{device.lastCheck}</strong></div><div><span>Last incident</span><strong>{device.lastIncident}</strong></div></div><div className="detail-note"><span className="auth-eyebrow">Latest activity</span><p>{device.lastIncident || 'No recent incidents captured for this device.'}</p></div><button className="outline-button" type="button">Open device history</button></section>
 }
-function AlertsPageLegacy() { const [items, setItems] = useState([]); const [severity, setSeverity] = useState('All'); useEffect(() => { mockApi.getAlerts().then(setItems) }, []); const filtered = items.filter(item => severity === 'All' || item.severity === severity); return <div className="dashboard"><PageHeader eyebrow="Alerts" title={<>Resolve issues<br /><span>before impact.</span></>} text="Prioritized incidents and threshold events across the NOC estate." action="Acknowledge all" /><div className="alert-filters"><button className={severity === 'All' ? 'active' : ''} onClick={() => setSeverity('All')}>All <span>{items.length}</span></button>{['Critical', 'Warning', 'Information'].map(level => <button className={severity === level ? 'active' : ''} key={level} onClick={() => setSeverity(level)}>{level} <span>{items.filter(item => item.severity === level).length}</span></button>)}</div><div className="dashboard-grid"><section className="dashboard-card alerts-card"><CardHeader eyebrow="Current queue" title={`${filtered.length} active alerts`} /><div className="alert-list">{filtered.map(item => <div className="alert-row detailed-alert" key={item.id}><span className={`alert-icon ${item.severity.toLowerCase()}`}><AlertTriangle size={15} /></span><span><strong>{item.title}</strong><small>{item.device} &middot; {item.time}</small></span><span className="alert-state">{item.status}</span></div>)}</div></section><section className="dashboard-card alert-health"><CardHeader eyebrow="Response health" title="Alert performance" /><div className="alert-stat"><strong>14 min</strong><span>mean time to acknowledge</span></div><div className="alert-stat"><strong>96.4%</strong><span>alerts resolved within SLA</span></div><div className="summary-note"><Check size={15} /> Response targets are on track</div></section></div><section className="dashboard-card monitor-table"><CardHeader eyebrow="Alert history" title="Recent activity" /><div className="table-row table-head"><span>Incident</span><span>Severity</span><span>Device</span><span>Detail</span></div>{items.map(item => <div className="table-row" key={item.id}><strong>{item.title}</strong><span>{item.severity}</span><span>{item.device}</span><span>{item.detail}</span></div>)}</section></div> }
 function AlertsPage() {
-  const defaultItems = [
-    {
-      id: 1,
-      title: 'Database replication lag detected',
-      device: 'Finance DB Cluster',
-      severity: 'Critical',
-      status: 'Open',
-      time: '2 min ago',
-      owner: 'Jordan Miller',
-      impact: 'Customer transactions may queue under latency spikes.',
-      summary: 'Primary node is 6s behind the standby cluster. The replication gap is trending upward and is above the service threshold.',
-      timeline: [
-        { time: '06:02', text: 'Pager fired after replication delay crossed 5s' },
-        { time: '06:06', text: 'Operator acknowledged and started failover review' },
-        { time: '06:10', text: 'Database team placed primary under maintenance watch' },
-      ],
-    },
-    {
-      id: 2,
-      title: 'Storage capacity threshold reached',
-      device: 'Storage Array',
-      severity: 'Warning',
-      status: 'Acknowledged',
-      time: '12 min ago',
-      owner: 'Priya Shah',
-      impact: 'Cold storage tier is above 80% usage and at risk of pressure.',
-      summary: 'Volume utilization crossed 80% on the cold storage tier. Growth is accelerating and the next expansion is scheduled within the next maintenance window.',
-      timeline: [
-        { time: '05:48', text: 'Capacity forecast crossed 80% threshold' },
-        { time: '05:56', text: 'Acknowledged by Priya Shah' },
-        { time: '06:00', text: 'Storage expansion ticket opened' },
-      ],
-    },
-    {
-      id: 3,
-      title: 'Certificate auto-renewal successful',
-      device: 'API Gateway',
-      severity: 'Information',
-      status: 'Resolved',
-      time: '1 hr ago',
-      owner: 'Samira Khan',
-      impact: 'No user impact expected.',
-      summary: 'TLS certificate renewed successfully without a service interruption. All endpoints verified with successful handshake checks.',
-      timeline: [
-        { time: '04:58', text: 'Auto-renewal completed' },
-        { time: '05:02', text: 'Gateway certificate chain verified' },
-        { time: '05:05', text: 'Resolution recorded' },
-      ],
-    },
-  ]
+  // Alerts are loaded live from /api/alerts (Grafana-fed alert workflow).
+  // No hardcoded demo records — initial state is empty until the API responds.
+  const defaultItems = []
 
   const [items, setItems] = useState(defaultItems)
   const [severity, setSeverity] = useState('All')
@@ -673,10 +666,10 @@ function AlertsPage() {
 
 function MetricCard({ label, value, detail, icon: Icon, tone, trend }) { return <article className="metric-card"><div className={`metric-icon ${tone}`}><Icon size={18} /></div><div className="metric-card-top"><span>{label}</span><span className={`trend ${trend.startsWith('+') ? 'positive' : 'negative'}`}>{trend}</span></div><strong>{value}</strong><small>{detail}</small></article> }
 function CardHeader({ eyebrow, title, action }) { return <div className="card-header"><div><span>{eyebrow}</span><h2>{title}</h2></div>{action && <a href={action.href || '#'}>{action.label}</a>}</div> }
-function ServerStatus() { const servers = [['PRD-WEB-01', 'Customer portal', 'Operational', 'green'], ['SQL-CORE-02', 'Finance database', 'Operational', 'green'], ['FILE-OPS-04', 'Operations file services', 'Degraded', 'amber'], ['DR-VAULT-01', 'Disaster recovery vault', 'Operational', 'green']]; return <section className="dashboard-card server-card" id="servers"><CardHeader eyebrow="Infrastructure" title="Server status" action={{ label: 'View all 48', href: '#servers' }} /><div className="server-list">{servers.map(([name, type, status, tone]) => <div className="server-row" key={name}><span className="server-status-dot" data-tone={tone} /><span className="server-name"><strong>{name}</strong><small>{type}</small></span><span className={`status-pill ${tone}`}>{status}</span><span className="server-pulse"><i /><i /><i /><i /><i /></span></div>)}</div></section> }
-function UsageChart() { const bars = [34, 45, 41, 56, 48, 64, 58, 70, 54, 62, 74, 61, 68, 58, 73, 66, 78, 71, 68, 72, 63, 57, 64, 59]; return <section className="dashboard-card usage-card"><CardHeader eyebrow="Performance" title="Resource usage" action={{ label: 'Last 24 hours', href: '#usage' }} /><div className="chart-legend"><span><i className="legend-cyan" />CPU</span><span><i className="legend-blue" />Memory</span><span className="chart-value">68.4% avg.</span></div><div className="bar-chart">{bars.map((height, index) => <div className="bar-group" key={index}><i style={{ height: `${height}%` }} /><i style={{ height: `${Math.max(24, height - 17)}%` }} /></div>)}</div><div className="chart-axis"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>Now</span></div></section> }
-function Alerts() { const alerts = [['SQL replication latency', 'SQL-CORE-02', '12 min ago', 'high'], ['Storage capacity above 70%', 'FILE-OPS-04', '38 min ago', 'medium'], ['TLS certificate expires in 14 days', 'PRD-WEB-01', '2 hrs ago', 'low']]; return <section className="dashboard-card alerts-card" id="alerts"><CardHeader eyebrow="Needs attention" title="Active alerts" action={{ label: 'Open alert center', href: '#alerts' }} /><div className="alert-list">{alerts.map(([title, host, time, level]) => <div className="alert-row" key={title}><span className={`alert-icon ${level}`}><AlertTriangle size={15} /></span><span><strong>{title}</strong><small>{host} &middot; {time}</small></span><ChevronDown size={15} /></div>)}</div></section> }
-function MonitoringSummary() { return <section className="dashboard-card summary-card"><CardHeader eyebrow="Coverage" title="Monitoring summary" /><div className="summary-ring"><div><strong>96%</strong><span>monitored</span></div></div><div className="summary-stats"><span><i className="green-dot" />48 servers</span><span><i className="cyan-dot" />32 services</span><span><i className="blue-dot" />86 checks</span></div><div className="summary-note"><Check size={15} /> Monitoring is healthy</div></section> }
+function ServerStatus() { const [devices, setDevices] = useState([]); useEffect(() => { let active = true; api.getDevices().then((items) => { if (active) setDevices(Array.isArray(items) ? items : []) }); return () => { active = false } }, []); const servers = devices.slice(0, 4).map((device) => { const status = normalizeDeviceStatus(device.status); return [device.name || device.id || '—', device.type || '—', status, getDeviceStatusTone(status)] }); return <section className="dashboard-card server-card" id="servers"><CardHeader eyebrow="Infrastructure" title="Server status" action={{ label: devices.length ? `View all ${devices.length}` : 'View devices', href: '#servers' }} /><div className="server-list">{servers.length ? servers.map(([name, type, status, tone]) => <div className="server-row" key={name}><span className="server-status-dot" data-tone={tone} /><span className="server-name"><strong>{name}</strong><small>{type}</small></span><span className={`status-pill ${tone}`}>{status}</span><span className="server-pulse"><i /><i /><i /><i /><i /></span></div>) : <div className="server-row"><span className="server-status-dot" data-tone="offline" /><span className="server-name"><strong>No devices reported</strong><small>Grafana snapshot unavailable</small></span><span className="status-pill offline">Offline</span></div>}</div></section> }
+function UsageChart() { const [snapshot, setSnapshot] = useState(null); useEffect(() => { let active = true; api.getDashboard().then((data) => { if (active) setSnapshot(data || {}) }); return () => { active = false } }, []); const toPct = (value) => { const parsed = Number.parseFloat(value); return Number.isFinite(parsed) ? Math.min(100, Math.max(0, parsed)) : 0 }; const cpu = toPct(snapshot?.cpu); const ram = toPct(snapshot?.ram); const disk = toPct(snapshot?.disk); const bars = [cpu, ram, disk, Math.round((cpu + ram + disk) / 3)]; const live = snapshot && !snapshot.dataUnavailable; const avg = live ? `${Math.round((cpu + ram + disk) / 3 * 10) / 10}% avg.` : 'Data unavailable'; return <section className="dashboard-card usage-card"><CardHeader eyebrow="Performance" title="Resource usage" action={{ label: 'Live Grafana snapshot', href: '#usage' }} /><div className="chart-legend"><span><i className="legend-cyan" />CPU</span><span><i className="legend-blue" />Memory</span><span className="chart-value">{avg}</span></div><div className="bar-chart">{live ? bars.map((height, index) => <div className="bar-group" key={index}><i style={{ height: `${height}%` }} /><i style={{ height: `${Math.max(24, height - 17)}%` }} /></div>) : <div className="bar-group"><i style={{ height: '8%' }} /></div>}</div><div className="chart-axis"><span>CPU</span><span>Memory</span><span>Disk</span><span>Avg</span></div></section> }
+function Alerts() { const [liveAlerts, setLiveAlerts] = useState([]); useEffect(() => { let active = true; api.getAlerts().then((items) => { if (active) setLiveAlerts(Array.isArray(items) ? items : []) }); return () => { active = false } }, []); const alerts = liveAlerts.slice(0, 3).map((item) => [item.title, item.device, item.time, item.severity === 'Critical' ? 'high' : item.severity === 'Warning' ? 'medium' : 'low']); return <section className="dashboard-card alerts-card" id="alerts"><CardHeader eyebrow="Needs attention" title="Active alerts" action={{ label: 'Open alert center', href: '#alerts' }} /><div className="alert-list">{alerts.length ? alerts.map(([title, host, time, level], index) => <div className="alert-row" key={`${title}-${index}`}><span className={`alert-icon ${level}`}><AlertTriangle size={15} /></span><span><strong>{title}</strong><small>{host} &middot; {time}</small></span><ChevronDown size={15} /></div>) : <div className="alert-row"><span className="alert-icon low"><Check size={15} /></span><span><strong>No active alerts</strong><small>Live alert queue is empty</small></span><ChevronDown size={15} /></div>}</div></section> }
+function MonitoringSummary() { const [snapshot, setSnapshot] = useState(null); useEffect(() => { let active = true; api.getDashboard().then((data) => { if (active) setSnapshot(data || {}) }); return () => { active = false } }, []); const availability = snapshot ? Number.parseFloat(snapshot.availability) : NaN; const monitored = Number.isFinite(availability) ? `${Math.round(availability)}%` : '—'; const stat = (value) => (snapshot && Number.isFinite(Number.parseInt(value, 10)) ? value : '—'); const healthy = snapshot && Number.isFinite(availability) ? availability >= 95 : false; return <section className="dashboard-card summary-card"><CardHeader eyebrow="Coverage" title="Monitoring summary" /><div className="summary-ring"><div><strong>{monitored}</strong><span>monitored</span></div></div><div className="summary-stats"><span><i className="green-dot" />{stat(snapshot?.servers)} servers</span><span><i className="cyan-dot" />{stat(snapshot?.datasourceCount)} services</span><span><i className="blue-dot" />{stat(snapshot?.panelCount)} checks</span></div><div className="summary-note">{healthy ? <Check size={15} /> : <AlertTriangle size={15} />} {healthy ? 'Monitoring is healthy' : 'Grafana metrics unavailable'}</div></section> }
 function SuccessStories() { return <section className="stories-section" id="infrastructure"><div className="section-intro"><span className="auth-eyebrow">Customer outcomes</span><h2>Infrastructure that<br /><span>earns trust.</span></h2><p>Enterprise teams use NOC Automation to turn operational data into resilient services and confident decisions.</p></div><div className="story-grid"><article><span className="story-number">01</span><strong>42%</strong><h3>faster incident response</h3><p>Meridian Logistics unified network and server monitoring across 18 distribution sites, reducing mean time to resolution.</p><a href="#contact">Read the story <span>&rarr;</span></a></article><article><span className="story-number">02</span><strong>99.98%</strong><h3>critical platform availability</h3><p>HarborPoint Financial automated cloud health checks and recovery workflows across its customer-facing services.</p><a href="#contact">Read the story <span>&rarr;</span></a></article></div></section> }
 function UserManagementPage() {
   const [tab, setTab] = useState('Users')
