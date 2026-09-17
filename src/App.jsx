@@ -11,50 +11,79 @@ const demoAccounts = {
   'operator@nocautomation.com': { password: 'Operator123!', name: 'NOC Operator', role: 'Operator' },
   'viewer@nocautomation.com': { password: 'Viewer123!', name: 'NOC Viewer', role: 'Viewer' },
 }
-const API_BASE = import.meta.env.VITE_API_URL || '/api'
 const AuthContext = createContext(null)
-
-async function apiRequest(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}), ...(options.headers || {}) },
-  })
-  const data = response.status === 204 ? null : await response.json()
-  if (!response.ok) { const error = new Error(data?.error || 'Request failed.'); error.status = response.status; throw error }
-  return data
-}
 
 function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY))
   const [user, setUser] = useState(() => { try { return JSON.parse(localStorage.getItem(USER_KEY)) || null } catch { return null } })
   const [localAuth, setLocalAuth] = useState(() => localStorage.getItem(LOCAL_AUTH_KEY) === 'true')
-  const [ready, setReady] = useState(() => !localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LOCAL_AUTH_KEY) === 'true')
+  const [ready, setReady] = useState(true)
+
   useEffect(() => {
-    if (localAuth) { setReady(true); return undefined }
-    if (!token) { setReady(true); return undefined }
-    let cancelled = false
-    setReady(false)
-    apiRequest('/auth/me', { token }).then(({ user: nextUser }) => {
-      if (!cancelled) { setUser(nextUser); localStorage.setItem(USER_KEY, JSON.stringify(nextUser)) }
-    }).catch(() => {
-      if (!cancelled) { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY); setToken(null); setUser(null) }
-    }).finally(() => { if (!cancelled) setReady(true) })
-    return () => { cancelled = true }
-  }, [localAuth, token])
-  const signIn = async (email, password) => {
-    try {
-      const data = await apiRequest('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
-      localStorage.removeItem(LOCAL_AUTH_KEY); localStorage.setItem(TOKEN_KEY, data.token); localStorage.setItem(USER_KEY, JSON.stringify(data.user)); setLocalAuth(false); setUser(data.user); setToken(data.token); return data
-    } catch (error) {
-      const account = demoAccounts[email.trim().toLowerCase()]
-      const backendUnavailable = !error.status || error.status >= 500
-      if (!backendUnavailable || !account || account.password !== password) throw error
-      const localUser = { id: `demo-${account.role.toLowerCase()}`, name: account.name, email: email.trim().toLowerCase(), role: account.role }
-      localStorage.setItem(LOCAL_AUTH_KEY, 'true'); localStorage.setItem(TOKEN_KEY, `local-demo-${account.role.toLowerCase()}`); localStorage.setItem(USER_KEY, JSON.stringify(localUser)); setLocalAuth(true); setUser(localUser); setToken(`local-demo-${account.role.toLowerCase()}`); return { user: localUser, local: true }
+    if (!token || localAuth) {
+      setReady(true)
+      return undefined
     }
+
+    setReady(true)
+    return undefined
+  }, [localAuth, token])
+
+  const signIn = async (email, password) => {
+    const normalizedEmail = String(email || '').trim().toLowerCase()
+    const account = demoAccounts[normalizedEmail]
+
+    if (!account || account.password !== password) {
+      const error = new Error('Invalid email or password.')
+      error.status = 401
+      throw error
+    }
+
+    const localUser = { id: `demo-${account.role.toLowerCase()}`, name: account.name, email: normalizedEmail, role: account.role }
+    const demoToken = `local-demo-${account.role.toLowerCase()}`
+
+    localStorage.setItem(LOCAL_AUTH_KEY, 'true')
+    localStorage.setItem(TOKEN_KEY, demoToken)
+    localStorage.setItem(USER_KEY, JSON.stringify(localUser))
+
+    setLocalAuth(true)
+    setUser(localUser)
+    setToken(demoToken)
+
+    return { user: localUser, local: true }
   }
-  const register = async (name, email, password, role) => { const data = await apiRequest('/auth/register', { method: 'POST', body: JSON.stringify({ name, email, password, role }) }); localStorage.setItem(TOKEN_KEY, data.token); localStorage.setItem(USER_KEY, JSON.stringify(data.user)); setUser(data.user); setToken(data.token); return data }
-  const signOut = async () => { try { if (token && !localAuth) await apiRequest('/auth/logout', { method: 'POST', token }) } finally { localStorage.removeItem(LOCAL_AUTH_KEY); localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY); setLocalAuth(false); setUser(null); setToken(null) } }
+
+  const register = async (name, email, password, role) => {
+    const normalizedEmail = String(email || '').trim().toLowerCase()
+    const safeRole = role || 'Viewer'
+    const localUser = {
+      id: `demo-${safeRole.toLowerCase()}-${Date.now()}`,
+      name: name || 'Operations User',
+      email: normalizedEmail,
+      role: safeRole,
+    }
+    const demoToken = `local-demo-${safeRole.toLowerCase()}`
+
+    localStorage.setItem(LOCAL_AUTH_KEY, 'true')
+    localStorage.setItem(TOKEN_KEY, demoToken)
+    localStorage.setItem(USER_KEY, JSON.stringify(localUser))
+
+    setLocalAuth(true)
+    setUser(localUser)
+    setToken(demoToken)
+
+    return { user: localUser, local: true }
+  }
+
+  const signOut = async () => {
+    localStorage.removeItem(LOCAL_AUTH_KEY)
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(USER_KEY)
+    setLocalAuth(false)
+    setUser(null)
+    setToken(null)
+  }
+
   return <AuthContext.Provider value={{ user, ready, authenticated: Boolean(token && user), signIn, register, signOut }}>{children}</AuthContext.Provider>
 }
 function useAuth() { return useContext(AuthContext) }
