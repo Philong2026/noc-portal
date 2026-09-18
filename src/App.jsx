@@ -273,18 +273,12 @@ function Dashboard() {
   if (location.pathname === '/audit') return <AuditLogPage />
   if (location.pathname === '/settings') return <SettingsPage />
 
-  const formatLastUpdated = (isoStr) => {
-    if (!isoStr || isoStr === DATA_UNAVAILABLE || isoStr === '—') return '—'
-    const d = new Date(isoStr)
-    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString()
-  }
-
   const trafficValue = dashboardData.traffic && String(dashboardData.traffic) !== DATA_UNAVAILABLE ? dashboardData.traffic : '—'
   const alertsValue = dashboardData.alerts && String(dashboardData.alerts) !== DATA_UNAVAILABLE ? dashboardData.alerts : '—'
   const deviceValue = dashboardData.devices && String(dashboardData.devices) !== DATA_UNAVAILABLE ? dashboardData.devices : '—'
   const availabilityValue = dashboardData.availability && String(dashboardData.availability) !== DATA_UNAVAILABLE ? dashboardData.availability : '—'
   const securityScoreValue = dashboardData.securityScore && String(dashboardData.securityScore) !== DATA_UNAVAILABLE ? dashboardData.securityScore : '—'
-  const lastUpdatedValue = formatLastUpdated(dashboardData.lastUpdated)
+  const lastUpdatedValue = dashboardData.lastUpdated && String(dashboardData.lastUpdated) !== DATA_UNAVAILABLE ? new Date(dashboardData.lastUpdated).toLocaleString() : '—'
 
   const metrics = [
     { label: 'CPU Usage', value: formatMetricValue(dashboardData.cpu, '%'), detail: 'across monitored hosts', icon: Cpu, tone: 'cyan', trend: 'Live' },
