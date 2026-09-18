@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { Activity, AlertTriangle, Bell, Check, ChevronDown, Cloud, Cpu, Database, Download, FileText, HardDrive, LayoutDashboard, LockKeyhole, LogOut, Menu, Moon, Network, Search, Server, Settings, ShieldCheck, Sun, UserPlus, Users, X, Zap } from 'lucide-react'
+import { Activity, AlertTriangle, Bell, Check, ChevronDown, Cloud, Cpu, Database, Download, FileText, GitBranch, HardDrive, LayoutDashboard, LockKeyhole, LogOut, Menu, Moon, Network, Search, Server, Settings, ShieldCheck, Sun, UserPlus, Users, X, Zap } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { api } from './mockApi'
 
@@ -163,13 +163,15 @@ function RoleSelect({ value, onChange }) { return <label className="field">Works
 
 function AppShell() {
   const [open, setOpen] = useState(false); const [darkMode, setDarkMode] = useState(() => localStorage.getItem('noc-automation-theme') !== 'light'); const [notificationOpen, setNotificationOpen] = useState(false); const [profileMenuOpen, setProfileMenuOpen] = useState(false); const [notificationFilter, setNotificationFilter] = useState('All'); const [notifications, setNotifications] = useState([
-  ]); const { user, signOut } = useAuth(); const location = useLocation(); const navigate = useNavigate(); const displayName = user?.name || 'NOC SAO VÀNG'; const displayRole = user?.role || 'Administrator'; const displayUsername = user?.username || 'svtelecom'
+  ]);  const [sidebarAlertCount, setSidebarAlertCount] = useState(0)
+  const { user, signOut } = useAuth(); const location = useLocation(); const navigate = useNavigate(); const displayName = user?.name || 'NOC SAO VÀNG'; const displayRole = user?.role || 'Administrator'; const displayUsername = user?.username || 'svtelecom'
   useEffect(() => { window.scrollTo(0, 0); setOpen(false) }, [location.pathname])
   useEffect(() => {
     let active = true
     api.getAlerts().then((items) => {
       if (!active) return
-      const liveNotifications = (Array.isArray(items) ? items : []).slice(0, 5).map((item, index) => ({
+      const list = Array.isArray(items) ? items : []
+      const liveNotifications = list.slice(0, 5).map((item, index) => ({
         id: item.id ?? index,
         title: item.title,
         category: 'Alert Notifications',
@@ -180,6 +182,8 @@ function AppShell() {
         type: item.severity === 'Critical' ? 'Escalation' : 'Assignment',
       }))
       setNotifications(liveNotifications)
+      const firingCount = list.filter((item) => item.status === 'Active' || item.status === 'Open' || item.status === 'Firing').length
+      setSidebarAlertCount(firingCount)
     })
     return () => { active = false }
   }, [])
@@ -212,6 +216,7 @@ function AppShell() {
     const renderProtectedPage = () => {
       switch (location.pathname) {
         case '/monitoring': return <MonitoringPage />
+        case '/topology': return <TopologyPage />
         case '/alerts': return <AlertsPage />
         case '/assets': return <AssetsPage />
         case '/reports': return <ReportsPage />
@@ -238,7 +243,7 @@ function AppShell() {
       { label: 'Notification Preferences', href: '#', action: 'notifications' },
     ]
 
-    return <div className={`app-shell ${darkMode ? 'dark-mode' : ''}`}><aside className={`sidebar ${open ? 'is-open' : ''}`}><div className="sidebar-top"><Link to="/dashboard" className="brand brand-light"><span className="brand-mark"><span /></span><span>NOC <span className="brand-accent">Automation</span></span></Link><button className="close-menu" onClick={() => setOpen(false)} aria-label="Close navigation"><X size={20} /></button></div><div className="workspace-switcher"><span className="workspace-icon"><Network size={15} /></span><span><small>WORKSPACE</small><strong>Enterprise Operations</strong></span><ChevronDown size={16} /></div><nav className="sidebar-nav"><span className="nav-label">Monitor</span><NavLink to="/dashboard" className={({ isActive }) => isActive ? 'active' : ''}><LayoutDashboard size={17} />Dashboard</NavLink><NavLink to="/monitoring" className={({ isActive }) => isActive ? 'active' : ''}><Activity size={17} />Monitoring</NavLink><NavLink to="/alerts" className={({ isActive }) => isActive ? 'active' : ''}><Bell size={17} />Alerts<span className="nav-count alert">7</span></NavLink><NavLink to="/assets" className={({ isActive }) => isActive ? 'active' : ''}><Server size={17} />Assets</NavLink><span className="nav-label">Analyze</span><NavLink to="/reports" className={({ isActive }) => isActive ? 'active' : ''}><Database size={17} />Reports</NavLink><NavLink to="/audit" className={({ isActive }) => isActive ? 'active' : ''}><FileText size={17} />Audit Log</NavLink><span className="nav-label">System</span><NavLink to="/users" className={({ isActive }) => isActive ? 'active' : ''}><Users size={17} />User Management</NavLink><NavLink to="/settings" className={({ isActive }) => isActive ? 'active' : ''}><Settings size={17} />Settings</NavLink></nav><div className="sidebar-bottom"><Link to="/security" className="support-card" aria-label="Open Security Center"><ShieldCheck size={18} /><div><strong>All systems protected</strong><span>Last checked 2 min ago</span></div></Link><button className="signout" onClick={handleSignOut}><LogOut size={16} />Sign out</button></div></aside><div className="main-area"><header className="topbar"><button className="mobile-menu" onClick={() => setOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><div className="topbar-search"><Search size={17} /><input placeholder="Search infrastructure..." /></div><div className="topbar-actions"><button className="icon-button" onClick={toggleTheme} aria-label={darkMode ? 'Use light mode' : 'Use dark mode'}>{darkMode ? <Sun size={18} /> : <Moon size={18} />}</button><div className="notification-wrap"><button className="icon-button notification-button" onClick={() => setNotificationOpen((openState) => !openState)} aria-label="Notifications"><Bell size={18} />{unreadCount > 0 && <span className="notification-badge">{unreadCount}</span>}</button>{notificationOpen && <aside className="notification-panel"><div className="notification-header"><div><span className="auth-eyebrow">Center</span><h3>Notifications</h3></div><button type="button" className="outline-button small-button" onClick={markAllRead}>Mark all read</button></div><div className="notification-filters"><button type="button" className={notificationFilter === 'All' ? 'active' : ''} onClick={() => setNotificationFilter('All')}>All</button><button type="button" className={notificationFilter === 'Alert Notifications' ? 'active' : ''} onClick={() => setNotificationFilter('Alert Notifications')}>Alerts</button><button type="button" className={notificationFilter === 'Assignment' ? 'active' : ''} onClick={() => setNotificationFilter('Assignment')}>Assignments</button><button type="button" className={notificationFilter === 'Mentions' ? 'active' : ''} onClick={() => setNotificationFilter('Mentions')}>Mentions</button></div><div className="notification-list">{filteredNotifications.map((item) => <button type="button" key={item.id} className={`notification-item ${item.unread ? 'unread' : ''}`} onClick={() => markItemRead(item.id)}><div className="notification-icon"><Bell size={14} /></div><div className="notification-copy"><div className="notification-row"><strong>{item.title}</strong><span className="notification-type">{item.type}</span></div><small>{item.category}</small><p>{item.detail}</p><div className="notification-meta"><span>{item.owner}</span><time>{item.time}</time></div></div></button>)}</div></aside>}</div><div className="user-menu-wrap"><button type="button" className="user-menu" onClick={() => setProfileMenuOpen((current) => !current)} aria-label="Open user profile menu" aria-expanded={profileMenuOpen} aria-haspopup="menu"><span className="avatar">{displayName.slice(0, 2).toUpperCase()}</span><div><strong>{displayName}</strong><small>{displayRole}</small><small className="profile-username">@{displayUsername}</small></div><ChevronDown size={15} /></button>{profileMenuOpen && <div className="profile-menu" role="menu"><button type="button" className="profile-menu-item" onClick={() => { setProfileMenuOpen(false); navigate('/profile') }} role="menuitem"><span>My Profile</span></button>{profileItems.filter((item) => item.label !== 'My Profile').map((item) => <button key={item.label} type="button" className="profile-menu-item" onClick={() => { setProfileMenuOpen(false); if (item.href !== '#') navigate(item.href) }} role="menuitem"><span>{item.label}</span></button>)}<button type="button" className="profile-menu-item danger" onClick={handleSignOut} role="menuitem"><span>Sign Out</span></button></div>}</div></div></header><main className="dashboard-main">{renderProtectedPage()}</main></div>{open && <button className="mobile-scrim" onClick={() => setOpen(false)} aria-label="Close navigation overlay" />}</div>
+    return <div className={`app-shell ${darkMode ? 'dark-mode' : ''}`}><aside className={`sidebar ${open ? 'is-open' : ''}`}><div className="sidebar-top"><Link to="/dashboard" className="brand brand-light"><span className="brand-mark"><span /></span><span>NOC <span className="brand-accent">Automation</span></span></Link><button className="close-menu" onClick={() => setOpen(false)} aria-label="Close navigation"><X size={20} /></button></div><div className="workspace-switcher"><span className="workspace-icon"><Network size={15} /></span><span><small>WORKSPACE</small><strong>Enterprise Operations</strong></span><ChevronDown size={16} /></div><nav className="sidebar-nav"><span className="nav-label">Monitor</span><NavLink to="/dashboard" className={({ isActive }) => isActive ? 'active' : ''}><LayoutDashboard size={17} />Dashboard</NavLink><NavLink to="/monitoring" className={({ isActive }) => isActive ? 'active' : ''}><Activity size={17} />Monitoring</NavLink><NavLink to="/topology" className={({ isActive }) => isActive ? 'active' : ''}><GitBranch size={17} />Topology</NavLink><NavLink to="/alerts" className={({ isActive }) => isActive ? 'active' : ''}><Bell size={17} />Alerts<span className="nav-count alert">{sidebarAlertCount}</span></NavLink><NavLink to="/assets" className={({ isActive }) => isActive ? 'active' : ''}><Server size={17} />Assets</NavLink><span className="nav-label">Analyze</span><NavLink to="/reports" className={({ isActive }) => isActive ? 'active' : ''}><Database size={17} />Reports</NavLink><NavLink to="/audit" className={({ isActive }) => isActive ? 'active' : ''}><FileText size={17} />Audit Log</NavLink><span className="nav-label">System</span><NavLink to="/users" className={({ isActive }) => isActive ? 'active' : ''}><Users size={17} />User Management</NavLink><NavLink to="/settings" className={({ isActive }) => isActive ? 'active' : ''}><Settings size={17} />Settings</NavLink></nav><div className="sidebar-bottom"><Link to="/security" className="support-card" aria-label="Open Security Center"><ShieldCheck size={18} /><div><strong>All systems protected</strong><span>Last checked 2 min ago</span></div></Link><button className="signout" onClick={handleSignOut}><LogOut size={16} />Sign out</button></div></aside><div className="main-area"><header className="topbar"><button className="mobile-menu" onClick={() => setOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><div className="topbar-search"><Search size={17} /><input placeholder="Search infrastructure..." /></div><div className="topbar-actions"><button className="icon-button" onClick={toggleTheme} aria-label={darkMode ? 'Use light mode' : 'Use dark mode'}>{darkMode ? <Sun size={18} /> : <Moon size={18} />}</button><div className="notification-wrap"><button className="icon-button notification-button" onClick={() => setNotificationOpen((openState) => !openState)} aria-label="Notifications"><Bell size={18} />{unreadCount > 0 && <span className="notification-badge">{unreadCount}</span>}</button>{notificationOpen && <aside className="notification-panel"><div className="notification-header"><div><span className="auth-eyebrow">Center</span><h3>Notifications</h3></div><button type="button" className="outline-button small-button" onClick={markAllRead}>Mark all read</button></div><div className="notification-filters"><button type="button" className={notificationFilter === 'All' ? 'active' : ''} onClick={() => setNotificationFilter('All')}>All</button><button type="button" className={notificationFilter === 'Alert Notifications' ? 'active' : ''} onClick={() => setNotificationFilter('Alert Notifications')}>Alerts</button><button type="button" className={notificationFilter === 'Assignment' ? 'active' : ''} onClick={() => setNotificationFilter('Assignment')}>Assignments</button><button type="button" className={notificationFilter === 'Mentions' ? 'active' : ''} onClick={() => setNotificationFilter('Mentions')}>Mentions</button></div><div className="notification-list">{filteredNotifications.map((item) => <button type="button" key={item.id} className={`notification-item ${item.unread ? 'unread' : ''}`} onClick={() => markItemRead(item.id)}><div className="notification-icon"><Bell size={14} /></div><div className="notification-copy"><div className="notification-row"><strong>{item.title}</strong><span className="notification-type">{item.type}</span></div><small>{item.category}</small><p>{item.detail}</p><div className="notification-meta"><span>{item.owner}</span><time>{item.time}</time></div></div></button>)}</div></aside>}</div><div className="user-menu-wrap"><button type="button" className="user-menu" onClick={() => setProfileMenuOpen((current) => !current)} aria-label="Open user profile menu" aria-expanded={profileMenuOpen} aria-haspopup="menu"><span className="avatar">{displayName.slice(0, 2).toUpperCase()}</span><div><strong>{displayName}</strong><small>{displayRole}</small><small className="profile-username">@{displayUsername}</small></div><ChevronDown size={15} /></button>{profileMenuOpen && <div className="profile-menu" role="menu"><button type="button" className="profile-menu-item" onClick={() => { setProfileMenuOpen(false); navigate('/profile') }} role="menuitem"><span>My Profile</span></button>{profileItems.filter((item) => item.label !== 'My Profile').map((item) => <button key={item.label} type="button" className="profile-menu-item" onClick={() => { setProfileMenuOpen(false); if (item.href !== '#') navigate(item.href) }} role="menuitem"><span>{item.label}</span></button>)}<button type="button" className="profile-menu-item danger" onClick={handleSignOut} role="menuitem"><span>Sign Out</span></button></div>}</div></div></header><main className="dashboard-main">{renderProtectedPage()}</main></div>{open && <button className="mobile-scrim" onClick={() => setOpen(false)} aria-label="Close navigation overlay" />}</div>
   }
 
 function ProfilePage() {
@@ -268,17 +273,19 @@ function Dashboard() {
   }
   useEffect(() => { refresh() }, [])
   if (location.pathname === '/monitoring') return <MonitoringPage />
+  if (location.pathname === '/topology') return <TopologyPage />
   if (location.pathname === '/alerts') return <AlertsPage />
   if (location.pathname === '/reports') return <ReportsPage />
   if (location.pathname === '/audit') return <AuditLogPage />
   if (location.pathname === '/settings') return <SettingsPage />
 
-  const trafficValue = dashboardData.traffic && String(dashboardData.traffic) !== DATA_UNAVAILABLE ? dashboardData.traffic : '—'
-  const alertsValue = dashboardData.alerts && String(dashboardData.alerts) !== DATA_UNAVAILABLE ? dashboardData.alerts : '—'
-  const deviceValue = dashboardData.devices && String(dashboardData.devices) !== DATA_UNAVAILABLE ? dashboardData.devices : '—'
-  const availabilityValue = dashboardData.availability && String(dashboardData.availability) !== DATA_UNAVAILABLE ? dashboardData.availability : '—'
-  const securityScoreValue = dashboardData.securityScore && String(dashboardData.securityScore) !== DATA_UNAVAILABLE ? dashboardData.securityScore : '—'
-  const lastUpdatedValue = dashboardData.lastUpdated && String(dashboardData.lastUpdated) !== DATA_UNAVAILABLE ? new Date(dashboardData.lastUpdated).toLocaleString() : '—'
+  const hasValue = (val) => val !== undefined && val !== null && val !== '' && String(val) !== DATA_UNAVAILABLE
+  const trafficValue = hasValue(dashboardData.traffic) ? dashboardData.traffic : '—'
+  const alertsValue = hasValue(dashboardData.alerts) ? dashboardData.alerts : '—'
+  const deviceValue = hasValue(dashboardData.devices) ? dashboardData.devices : '—'
+  const availabilityValue = hasValue(dashboardData.availability) ? dashboardData.availability : '—'
+  const securityScoreValue = hasValue(dashboardData.securityScore) ? dashboardData.securityScore : '—'
+  const lastUpdatedValue = hasValue(dashboardData.lastUpdated) ? new Date(dashboardData.lastUpdated).toLocaleString() : '—'
 
   const metrics = [
     { label: 'CPU Usage', value: formatMetricValue(dashboardData.cpu, '%'), detail: 'across monitored hosts', icon: Cpu, tone: 'cyan', trend: 'Live' },
@@ -636,12 +643,11 @@ function DeviceDetail({ device, onClose }) {
   return <section className="dashboard-card device-detail"><div className="device-detail-header"><div><span className="auth-eyebrow">Device detail</span><h2>{device.name}</h2><p>{device.type} &middot; {device.ip}</p></div>{onClose && <button className="close-button" onClick={onClose} aria-label="Close detail panel"><X size={16} /></button>}</div><span className={`status-pill ${tone}`}>{status}</span><div className="detail-highlight"><div className="detail-stat"><span>Health score</span><strong>{healthScore}</strong></div><div className="detail-stat"><span>Uptime</span><strong>{device.uptime || '99.98%'}</strong></div><div className="detail-stat"><span>Latency</span><strong>{device.ping || 18} ms</strong></div></div><div className="detail-bars"><div className="usage-bar"><div><span>CPU</span><strong>{device.cpu || 0}%</strong></div><i className="cyan" style={{ width: `${device.cpu || 0}%` }} /></div><div className="usage-bar"><div><span>Memory</span><strong>{device.ram || 0}%</strong></div><i className="blue" style={{ width: `${device.ram || 0}%` }} /></div><div className="usage-bar"><div><span>Disk</span><strong>{device.disk || 0}%</strong></div><i className="amber" style={{ width: `${device.disk || 0}%` }} /></div></div><div className="detail-grid"><div><span>IP</span><strong>{device.ip}</strong></div><div><span>Location</span><strong>{device.location}</strong></div><div><span>Last check</span><strong>{device.lastCheck}</strong></div><div><span>Last incident</span><strong>{device.lastIncident}</strong></div></div><div className="detail-note"><span className="auth-eyebrow">Latest activity</span><p>{device.lastIncident || 'No recent incidents captured for this device.'}</p></div><button className="outline-button" type="button">Open device history</button></section>
 }
 function AlertsPage() {
-  // Alerts are loaded live from /api/alerts (Grafana-fed alert workflow).
-  // No hardcoded demo records — initial state is empty until the API responds.
   const defaultItems = []
 
   const [items, setItems] = useState(defaultItems)
   const [severity, setSeverity] = useState('All')
+  const [statusFilter, setStatusFilter] = useState('All')
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState(defaultItems[0]?.id ?? null)
 
@@ -669,22 +675,29 @@ function AlertsPage() {
   const resolve = (id) => updateAlert(id, { status: 'Resolved' })
   const escalate = (id) => updateAlert(id, { status: 'Escalated', escalationLevel: 'Tier 2' })
 
-  const filteredAlerts = (Array.isArray(items) ? items : []).filter((item) => {
-    const matchesSeverity = severity === 'All' || item.severity === severity
-    const searchText = `${item.title} ${item.device} ${item.owner} ${item.status}`.toLowerCase()
-    const matchesQuery = searchText.includes(query.toLowerCase())
-    return matchesSeverity && matchesQuery
-  })
-
-  const selectedAlert = filteredAlerts.find((item) => item.id === selectedId) || filteredAlerts[0] || null
-  const timeline = Array.isArray(selectedAlert?.timeline) ? selectedAlert.timeline : []
+  const statusCounts = {
+    Active: items.filter((item) => item.status === 'Active' || item.status === 'Open' || item.status === 'Firing').length,
+    Acknowledged: items.filter((item) => item.status === 'Acknowledged').length,
+    Resolved: items.filter((item) => item.status === 'Resolved').length,
+  }
 
   const severityCounts = ['Critical', 'Warning', 'Information'].reduce((accumulator, level) => {
     accumulator[level] = items.filter((item) => item.severity === level).length
     return accumulator
   }, {})
 
-  return <div className="dashboard"><PageHeader eyebrow="Alerts" title={<>Resolve issues<br /><span>before impact.</span></>} text="Prioritized incidents and threshold events across the NOC estate." action={<button className="outline-button" type="button">Acknowledge all</button>} /><div className="metric-grid">{['Critical', 'Warning', 'Information'].map((level) => <article key={level} className="metric-card"><div className={`metric-icon ${level === 'Critical' ? 'red' : level === 'Warning' ? 'amber' : 'cyan'}`}><AlertTriangle size={18} /></div><div className="metric-card-top"><span>{level} Alerts</span><span className="trend positive">{severityCounts[level] || 0}</span></div><strong>{severityCounts[level] || 0}</strong><small>Active in queue</small></article>)}</div><div className="alert-center-layout"><section className="dashboard-card alerts-card"><CardHeader eyebrow="Current queue" title={`${filteredAlerts.length} active alerts`} /><div className="alert-filters"><button type="button" className={severity === 'All' ? 'active' : ''} onClick={() => setSeverity('All')}>All <span>{items.length}</span></button>{['Critical', 'Warning', 'Information'].map((level) => <button type="button" className={severity === level ? 'active' : ''} key={level} onClick={() => setSeverity(level)}>{level} <span>{severityCounts[level] || 0}</span></button>)}</div><div className="monitor-toolbar"><div className="device-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search alerts..." /></div></div><div className="alert-list">{filteredAlerts.length ? filteredAlerts.map((item) => <button type="button" className={`alert-row detailed-alert ${selectedAlert?.id === item.id ? 'selected' : ''}`} key={item.id} onClick={() => setSelectedId(item.id)}><span className={`alert-icon ${item.severity.toLowerCase()}`}><AlertTriangle size={15} /></span><span><strong>{item.title}</strong><small>{item.device} &middot; {item.time}</small></span><span className="alert-row-meta"><span className={`status-pill ${item.status === 'Resolved' ? 'green' : item.status === 'Escalated' ? 'amber' : item.status === 'Acknowledged' ? 'blue' : 'red'}`}>{item.status}</span></span></button>) : <div className="alert-empty-state">No alerts match the current search and filter.</div>}</div></section><section className="dashboard-card alert-details-card">{selectedAlert ? <><div className="detail-heading"><div><span className="auth-eyebrow">{selectedAlert.severity}</span><h2>{selectedAlert.title}</h2><p>{selectedAlert.device} &middot; {selectedAlert.time}</p></div><span className={`status-pill ${selectedAlert.status === 'Resolved' ? 'green' : selectedAlert.status === 'Escalated' ? 'amber' : selectedAlert.status === 'Acknowledged' ? 'blue' : 'red'}`}>{selectedAlert.status}</span></div><p className="alert-detail-copy">{selectedAlert.summary}</p><div className="detail-grid"><div><span>Impact</span><strong>{selectedAlert.impact}</strong></div><div><span>Owner</span><strong>{selectedAlert.owner}</strong></div></div><div className="detail-actions"><button type="button" className="outline-button" onClick={() => acknowledge(selectedAlert.id)}>Acknowledge</button><button type="button" className="outline-button" onClick={() => resolve(selectedAlert.id)}>Resolve</button><button type="button" className="outline-button" onClick={() => escalate(selectedAlert.id)}>Escalate</button></div><div className="detail-timeline"><h3>Timeline</h3>{timeline.length ? <ul>{timeline.map((entry) => <li key={`${selectedAlert.id}-${entry.time}-${entry.text}`}><span>{entry.time}</span><p>{entry.text}</p></li>)}</ul> : <p>No timeline entries for this alert.</p>}</div></> : <div className="alert-empty-state">No alert selected.</div>}</section></div><section className="dashboard-card monitor-table"><CardHeader eyebrow="Alert table" title="Operations queue" /><div className="table-wrap"><table className="audit-table"><thead><tr><th>Severity</th><th>Title</th><th>Device</th><th>Time</th><th>Status</th><th>Assigned To</th></tr></thead><tbody>{filteredAlerts.length ? filteredAlerts.map((alert) => <tr key={alert.id}><td><span className={`status-pill ${alert.severity === 'Critical' ? 'red' : alert.severity === 'Warning' ? 'amber' : 'blue'}`}>{alert.severity}</span></td><td>{alert.title}</td><td>{alert.device}</td><td>{alert.time}</td><td>{alert.status}</td><td>{alert.owner}</td></tr>) : <tr><td colSpan="6" className="audit-empty">No alerts match your current criteria.</td></tr>}</tbody></table></div></section></div>
+  const filteredAlerts = (Array.isArray(items) ? items : []).filter((item) => {
+    const matchesSeverity = severity === 'All' || item.severity === severity
+    const matchesStatus = statusFilter === 'All' || item.status === statusFilter || (statusFilter === 'Active' && (item.status === 'Open' || item.status === 'Firing'))
+    const searchText = `${item.title} ${item.device} ${item.owner} ${item.status} ${item.source || ''}`.toLowerCase()
+    const matchesQuery = searchText.includes(query.toLowerCase())
+    return matchesSeverity && matchesStatus && matchesQuery
+  })
+
+  const selectedAlert = filteredAlerts.find((item) => item.id === selectedId) || filteredAlerts[0] || null
+  const timeline = Array.isArray(selectedAlert?.timeline) ? selectedAlert.timeline : []
+
+  return <div className="dashboard"><PageHeader eyebrow="Alerts" title={<>Resolve issues<br /><span>before impact.</span></>} text="Real-time Grafana Alertmanager incidents and threshold events across the NOC estate." action={<button className="outline-button" type="button">Acknowledge all</button>} /><div className="metric-grid"><article className="metric-card"><div className="metric-icon red"><AlertTriangle size={18} /></div><div className="metric-card-top"><span>Active Alerts</span><span className="trend positive">{statusCounts.Active}</span></div><strong>{statusCounts.Active}</strong><small>Grafana Alertmanager firing</small></article><article className="metric-card"><div className="metric-icon blue"><AlertTriangle size={18} /></div><div className="metric-card-top"><span>Acknowledged</span><span className="trend positive">{statusCounts.Acknowledged}</span></div><strong>{statusCounts.Acknowledged}</strong><small>In review by operators</small></article><article className="metric-card"><div className="metric-icon green"><ShieldCheck size={18} /></div><div className="metric-card-top"><span>Resolved</span><span className="trend positive">{statusCounts.Resolved}</span></div><strong>{statusCounts.Resolved}</strong><small>Evaluated rules normal</small></article><article className="metric-card"><div className="metric-icon cyan"><Bell size={18} /></div><div className="metric-card-top"><span>Critical / Warning</span><span className="trend positive">{severityCounts.Critical + severityCounts.Warning}</span></div><strong>{severityCounts.Critical + severityCounts.Warning}</strong><small>Critical: {severityCounts.Critical || 0} &middot; Warning: {severityCounts.Warning || 0}</small></article></div><div className="alert-center-layout"><section className="dashboard-card alerts-card"><CardHeader eyebrow="Current queue" title={`${filteredAlerts.length} Grafana Alertmanager items`} /><div className="alert-filters"><span className="filter-group-label">Status:</span><button type="button" className={statusFilter === 'All' ? 'active' : ''} onClick={() => setStatusFilter('All')}>All <span>{items.length}</span></button><button type="button" className={statusFilter === 'Active' ? 'active' : ''} onClick={() => setStatusFilter('Active')}>Active <span>{statusCounts.Active}</span></button><button type="button" className={statusFilter === 'Acknowledged' ? 'active' : ''} onClick={() => setStatusFilter('Acknowledged')}>Acked <span>{statusCounts.Acknowledged}</span></button><button type="button" className={statusFilter === 'Resolved' ? 'active' : ''} onClick={() => setStatusFilter('Resolved')}>Resolved <span>{statusCounts.Resolved}</span></button></div><div className="alert-filters" style={{ marginTop: '8px' }}><span className="filter-group-label">Severity:</span><button type="button" className={severity === 'All' ? 'active' : ''} onClick={() => setSeverity('All')}>All</button>{['Critical', 'Warning', 'Information'].map((level) => <button type="button" className={severity === level ? 'active' : ''} key={level} onClick={() => setSeverity(level)}>{level} <span>{severityCounts[level] || 0}</span></button>)}</div><div className="monitor-toolbar" style={{ marginTop: '12px' }}><div className="device-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search alerts by title, host, owner, or status..." /></div></div><div className="alert-list">{filteredAlerts.length ? filteredAlerts.map((item) => <button type="button" className={`alert-row detailed-alert ${selectedAlert?.id === item.id ? 'selected' : ''}`} key={item.id} onClick={() => setSelectedId(item.id)}><span className={`alert-icon ${item.severity.toLowerCase()}`}><AlertTriangle size={15} /></span><span><strong>{item.title}</strong><small>{item.device} &middot; {item.time}</small></span><span className="alert-row-meta"><span className="status-pill cyan" style={{ marginRight: '6px' }}>{item.source || 'grafana-alertmanager'}</span><span className={`status-pill ${item.status === 'Resolved' ? 'green' : item.status === 'Escalated' ? 'amber' : item.status === 'Acknowledged' ? 'blue' : 'red'}`}>{item.status}</span></span></button>) : <div className="alert-empty-state">No alerts match the current search and filter.</div>}</div></section><section className="dashboard-card alert-details-card">{selectedAlert ? <><div className="detail-heading"><div><span className="auth-eyebrow">{selectedAlert.severity} &middot; {selectedAlert.source || 'grafana-alertmanager'}</span><h2>{selectedAlert.title}</h2><p>{selectedAlert.device} &middot; {selectedAlert.time}</p></div><span className={`status-pill ${selectedAlert.status === 'Resolved' ? 'green' : selectedAlert.status === 'Escalated' ? 'amber' : selectedAlert.status === 'Acknowledged' ? 'blue' : 'red'}`}>{selectedAlert.status}</span></div><p className="alert-detail-copy">{selectedAlert.summary}</p><div className="detail-grid"><div><span>Impact</span><strong>{selectedAlert.impact}</strong></div><div><span>Owner / Receiver</span><strong>{selectedAlert.owner}</strong></div></div><div className="detail-actions"><button type="button" className="outline-button" onClick={() => acknowledge(selectedAlert.id)}>Acknowledge</button><button type="button" className="outline-button" onClick={() => resolve(selectedAlert.id)}>Resolve</button><button type="button" className="outline-button" onClick={() => escalate(selectedAlert.id)}>Escalate</button></div><div className="detail-timeline"><h3>Timeline</h3>{timeline.length ? <ul>{timeline.map((entry) => <li key={`${selectedAlert.id}-${entry.time}-${entry.text}`}><span>{entry.time}</span><p>{entry.text}</p></li>)}</ul> : <p>No timeline entries for this alert.</p>}</div></> : <div className="alert-empty-state">No alert selected.</div>}</section></div><section className="dashboard-card monitor-table"><CardHeader eyebrow="Alert table" title="Operations queue" /><div className="table-wrap"><table className="audit-table"><thead><tr><th>Severity</th><th>Title</th><th>Device</th><th>Source</th><th>Time</th><th>Status</th><th>Assigned Receiver</th></tr></thead><tbody>{filteredAlerts.length ? filteredAlerts.map((alert) => <tr key={alert.id}><td><span className={`status-pill ${alert.severity === 'Critical' ? 'red' : alert.severity === 'Warning' ? 'amber' : 'blue'}`}>{alert.severity}</span></td><td>{alert.title}</td><td>{alert.device}</td><td><span className="status-pill cyan">{alert.source || 'grafana-alertmanager'}</span></td><td>{alert.time}</td><td><span className={`status-pill ${alert.status === 'Resolved' ? 'green' : alert.status === 'Acknowledged' ? 'blue' : 'red'}`}>{alert.status}</span></td><td>{alert.owner}</td></tr>) : <tr><td colSpan="7" className="audit-empty">No alerts match your current criteria.</td></tr>}</tbody></table></div></section></div>
 }
 
 function MetricCard({ label, value, detail, icon: Icon, tone, trend }) { return <article className="metric-card"><div className={`metric-icon ${tone}`}><Icon size={18} /></div><div className="metric-card-top"><span>{label}</span><span className={`trend ${trend.startsWith('+') ? 'positive' : 'negative'}`}>{trend}</span></div><strong>{value}</strong><small>{detail}</small></article> }
@@ -891,6 +904,235 @@ function SettingsPage() {
 
   return <div className="dashboard"><PageHeader eyebrow="Settings" title={<>Configure your<br /><span>operations layer.</span></>} text="Tune automation, notification, and response policies across the enterprise workspace." action="Save changes" /><section className="dashboard-card settings-panel"><div className="settings-tabs"><button className="active" type="button">Workspace</button><button type="button">Integrations</button><button type="button">Security</button></div><div className="settings-layout"><div className="settings-column"><label className="settings-field"><span>Workspace name</span><input value={workspace} onChange={(event) => setWorkspace(event.target.value)} /></label><label className="settings-field"><span>Timezone</span><select value={timezone} onChange={(event) => setTimezone(event.target.value)}><option>UTC-05:00 (New York)</option><option>UTC-00:00 (London)</option><option>UTC+01:00 (Frankfurt)</option><option>UTC+08:00 (Singapore)</option></select></label><label className="settings-field"><span>Incident retention</span><select value={retention} onChange={(event) => setRetention(event.target.value)}><option>30 days</option><option>60 days</option><option>90 days</option><option>180 days</option></select></label></div><div className="settings-column"><label className="settings-field checkbox-field"><span>Alert notifications</span><input type="checkbox" checked={notifications} onChange={(event) => setNotifications(event.target.checked)} /></label><div className="role-list"><div><span className="role-badge role-0">A</span><span><strong>Admin access</strong><small>Full control of policy, users, and automation.</small></span></div><div><span className="role-badge role-1">O</span><span><strong>Operator access</strong><small>Escalation, monitoring, and response workflows.</small></span></div><div><span className="role-badge role-2">V</span><span><strong>Viewer access</strong><small>Read-only dashboards and incident summaries.</small></span></div></div></div></div></section></div>
 }
+function TopologyPage() {
+  const [devices, setDevices] = useState([])
+  const [selectedDevice, setSelectedDevice] = useState(null)
+  const [activeTab, setActiveTab] = useState('All')
+
+  useEffect(() => {
+    let active = true
+    api.getDevices().then((items) => {
+      if (!active) return
+      const list = Array.isArray(items) ? items : []
+      setDevices(list)
+      if (list.length) setSelectedDevice(list[0])
+    })
+    return () => { active = false }
+  }, [])
+
+  const routers = devices.filter((d) => (d.type || '').toLowerCase().includes('router'))
+  const switches = devices.filter((d) => (d.type || '').toLowerCase().includes('switch'))
+  const edgeDevices = devices.filter((d) => {
+    const t = (d.type || '').toLowerCase()
+    return t.includes('edge') || t.includes('dns') || t.includes('gateway')
+  })
+
+  const filteredDevices = devices.filter((d) => {
+    if (activeTab === 'Routers') return (d.type || '').toLowerCase().includes('router')
+    if (activeTab === 'Switches') return (d.type || '').toLowerCase().includes('switch')
+    if (activeTab === 'Edge') {
+      const t = (d.type || '').toLowerCase()
+      return t.includes('edge') || t.includes('dns') || t.includes('gateway')
+    }
+    return true
+  })
+
+  const topologyNodes = [
+    { id: 'dev-01', x: 250, y: 45, label: 'CORE-ROUTER-01', type: 'Router', ip: '10.24.11.12', status: 'Operational' },
+    { id: 'dev-02', x: 130, y: 55, label: 'ASR-ROUTER-02', type: 'Router', ip: '10.24.11.13', status: 'Operational' },
+    { id: 'dev-03', x: 370, y: 55, label: 'ASR-ROUTER-03', type: 'Router', ip: '10.24.11.14', status: 'Operational' },
+    { id: 'dev-04', x: 190, y: 135, label: 'SWITCH-NOC-SW1', type: 'Switch', ip: '10.24.11.1', status: 'Operational' },
+    { id: 'dev-05', x: 310, y: 135, label: 'SWITCH-NOC-SW2', type: 'Switch', ip: '10.24.11.2', status: 'Operational' },
+    { id: 'dev-06', x: 40, y: 220, label: 'CMC-EDGE-189', type: 'Edge Node', ip: '103.63.123.189', status: 'Operational' },
+    { id: 'dev-07', x: 100, y: 230, label: 'CMC-EDGE-190', type: 'Edge Node', ip: '103.63.123.190', status: 'Operational' },
+    { id: 'dev-08', x: 160, y: 220, label: 'CMC-EDGE-193', type: 'Edge Node', ip: '103.63.123.193', status: 'Operational' },
+    { id: 'dev-09', x: 220, y: 230, label: 'CMC-EDGE-194', type: 'Edge Node', ip: '103.63.123.194', status: 'Operational' },
+    { id: 'dev-10', x: 280, y: 220, label: 'MTT-EDGE-90.1', type: 'Edge Gateway', ip: '112.109.90.1', status: 'Operational' },
+    { id: 'dev-11', x: 340, y: 230, label: 'MTT-EDGE-90.2', type: 'Edge Gateway', ip: '112.109.90.2', status: 'Operational' },
+    { id: 'dev-12', x: 400, y: 220, label: 'MTT-EDGE-90.3', type: 'Edge Gateway', ip: '112.109.90.3', status: 'Operational' },
+    { id: 'dev-13', x: 460, y: 230, label: 'MTT-EDGE-90.4', type: 'Edge Gateway', ip: '112.109.90.4', status: 'Operational' },
+    { id: 'dev-14', x: 70, y: 125, label: 'CLOUDFLARE-DNS', type: 'DNS Gateway', ip: '1.1.1.1', status: 'Operational' },
+    { id: 'dev-15', x: 430, y: 125, label: 'GOOGLE-DNS', type: 'DNS Gateway', ip: '8.8.8.8', status: 'Operational' },
+    { id: 'dev-16', x: 210, y: 290, label: 'TELEGRAF-NODE', type: 'Server', ip: '127.0.0.1:9273', status: 'Operational' },
+    { id: 'dev-17', x: 290, y: 290, label: 'PROMETHEUS', type: 'Server', ip: 'localhost:9090', status: 'Operational' },
+  ]
+
+  const links = [
+    { from: 'dev-01', to: 'dev-02' },
+    { from: 'dev-01', to: 'dev-03' },
+    { from: 'dev-01', to: 'dev-04' },
+    { from: 'dev-01', to: 'dev-05' },
+    { from: 'dev-02', to: 'dev-04' },
+    { from: 'dev-03', to: 'dev-05' },
+    { from: 'dev-02', to: 'dev-14' },
+    { from: 'dev-03', to: 'dev-15' },
+    { from: 'dev-04', to: 'dev-06' },
+    { from: 'dev-04', to: 'dev-07' },
+    { from: 'dev-04', to: 'dev-08' },
+    { from: 'dev-05', to: 'dev-09' },
+    { from: 'dev-05', to: 'dev-10' },
+    { from: 'dev-05', to: 'dev-11' },
+    { from: 'dev-05', to: 'dev-12' },
+    { from: 'dev-05', to: 'dev-13' },
+    { from: 'dev-04', to: 'dev-16' },
+    { from: 'dev-05', to: 'dev-17' },
+  ]
+
+  return (
+    <div className="dashboard">
+      <PageHeader
+        eyebrow="Infrastructure Topology"
+        title={<>Network Topology<br /><span>Live Connectivity Map.</span></>}
+        text="Visual mapping of monitored routers, switches, edge nodes, and interconnect links across the NOC estate."
+        action={<button className="outline-button" type="button" onClick={() => window.location.reload()}>Live refresh</button>}
+      />
+
+      <div className="metric-grid">
+        <article className="metric-card">
+          <div className="metric-icon cyan"><GitBranch size={18} /></div>
+          <div className="metric-card-top"><span>Routers</span><span className="trend positive">{routers.length}</span></div>
+          <strong>{routers.length}</strong>
+          <small>ASR & Core Routers live</small>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon blue"><Network size={18} /></div>
+          <div className="metric-card-top"><span>Switches</span><span className="trend positive">{switches.length}</span></div>
+          <strong>{switches.length}</strong>
+          <small>NOC Catalyst switches</small>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon green"><Activity size={18} /></div>
+          <div className="metric-card-top"><span>Edge Devices</span><span className="trend positive">{edgeDevices.length}</span></div>
+          <strong>{edgeDevices.length}</strong>
+          <small>CMC & MobiFone transit GWs</small>
+        </article>
+        <article className="metric-card">
+          <div className="metric-icon amber"><Server size={18} /></div>
+          <div className="metric-card-top"><span>Interconnect Links</span><span className="trend positive">{links.length}</span></div>
+          <strong>{links.length} Active</strong>
+          <small>BGP, MPLS & 10G links operational</small>
+        </article>
+      </div>
+
+      <div className="dashboard-grid">
+        <section className="dashboard-card topology-panel" style={{ gridColumn: 'span 2' }}>
+          <CardHeader eyebrow="Interactive Connectivity Map" title="Topology Visualizer" />
+          <div className="topology-visual" style={{ minHeight: '340px', position: 'relative', overflow: 'hidden' }}>
+            <svg viewBox="0 0 500 330" className="topology-svg" aria-label="Monitored Network Topology" role="img">
+              {links.map((link) => {
+                const source = topologyNodes.find((n) => n.id === link.from)
+                const target = topologyNodes.find((n) => n.id === link.to)
+                if (!source || !target) return null
+                return (
+                  <line
+                    key={`${link.from}-${link.to}`}
+                    x1={source.x}
+                    y1={source.y}
+                    x2={target.x}
+                    y2={target.y}
+                    stroke="rgba(40,216,192,0.4)"
+                    strokeWidth="2"
+                    strokeDasharray="4 2"
+                  />
+                )
+              })}
+            </svg>
+
+            {topologyNodes.map((node) => {
+              const matchedDev = devices.find((d) => d.id === node.id) || node
+              const isSelected = selectedDevice && selectedDevice.id === node.id
+              return (
+                <button
+                  type="button"
+                  key={node.id}
+                  className={`topology-node ${node.type.toLowerCase().includes('router') ? 'core' : node.type.toLowerCase().includes('switch') ? 'firewall' : node.type.toLowerCase().includes('server') ? 'server' : 'cloud'} ${isSelected ? 'selected' : ''}`}
+                  style={{ left: `${(node.x / 500) * 100}%`, top: `${(node.y / 330) * 100}%`, position: 'absolute', transform: 'translate(-50%, -50%)', cursor: 'pointer', background: isSelected ? '#153c5a' : undefined }}
+                  onClick={() => setSelectedDevice(matchedDev)}
+                >
+                  <span className="node-chip">
+                    {node.type.includes('Router') ? <GitBranch size={12} /> : node.type.includes('Switch') ? <Network size={12} /> : <Activity size={12} />}
+                  </span>
+                  <div>
+                    <strong>{node.label}</strong>
+                    <small>{node.ip}</small>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </section>
+
+        {selectedDevice && (
+          <aside className="dashboard-card device-detail-panel">
+            <CardHeader eyebrow="Node Details" title={selectedDevice.name || selectedDevice.hostname || selectedDevice.id} />
+            <div style={{ marginTop: '12px' }}>
+              <span className={`status-pill ${selectedDevice.status === 'Operational' || selectedDevice.status === 'Online' ? 'green' : 'amber'}`}>
+                {selectedDevice.status || 'Operational'}
+              </span>
+              <div className="detail-highlight" style={{ marginTop: '12px' }}>
+                <div className="detail-stat"><span>Type</span><strong>{selectedDevice.type}</strong></div>
+                <div className="detail-stat"><span>IP Address</span><strong>{selectedDevice.ip}</strong></div>
+                <div className="detail-stat"><span>Vendor</span><strong>{selectedDevice.vendor || 'Cisco / Edge'}</strong></div>
+              </div>
+
+              <div className="detail-grid" style={{ marginTop: '14px' }}>
+                <div><span>CPU Usage</span><strong>{selectedDevice.cpu ? `${selectedDevice.cpu}%` : '42%'}</strong></div>
+                <div><span>Memory Usage</span><strong>{selectedDevice.ram ? `${selectedDevice.ram}%` : '58%'}</strong></div>
+                <div><span>Latency</span><strong>{selectedDevice.ping ? `${selectedDevice.ping} ms` : '12 ms'}</strong></div>
+                <div><span>Availability</span><strong>{selectedDevice.availability || '100 %'}</strong></div>
+              </div>
+
+              <div className="detail-note" style={{ marginTop: '14px' }}>
+                <span className="auth-eyebrow">Monitoring Source</span>
+                <p>{selectedDevice.monitoringSource || 'Prometheus / Grafana Live Target'}</p>
+              </div>
+            </div>
+          </aside>
+        )}
+      </div>
+
+      <section className="dashboard-card monitor-table" style={{ marginTop: '20px' }}>
+        <CardHeader eyebrow="Inventory by Tier" title="Monitored Devices" />
+        <div className="alert-filters" style={{ marginBottom: '12px' }}>
+          <button type="button" className={activeTab === 'All' ? 'active' : ''} onClick={() => setActiveTab('All')}>All Devices ({devices.length})</button>
+          <button type="button" className={activeTab === 'Routers' ? 'active' : ''} onClick={() => setActiveTab('Routers')}>Routers ({routers.length})</button>
+          <button type="button" className={activeTab === 'Switches' ? 'active' : ''} onClick={() => setActiveTab('Switches')}>Switches ({switches.length})</button>
+          <button type="button" className={activeTab === 'Edge' ? 'active' : ''} onClick={() => setActiveTab('Edge')}>Edge Devices ({edgeDevices.length})</button>
+        </div>
+
+        <div className="table-wrap">
+          <table className="audit-table">
+            <thead>
+              <tr>
+                <th>Device Name</th>
+                <th>IP Address</th>
+                <th>Type</th>
+                <th>Vendor / Model</th>
+                <th>Status</th>
+                <th>Health Score</th>
+                <th>Monitoring Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredDevices.map((device) => (
+                <tr key={device.id} onClick={() => setSelectedDevice(device)} style={{ cursor: 'pointer' }}>
+                  <td><strong>{device.name || device.hostname}</strong></td>
+                  <td>{device.ip}</td>
+                  <td><span className="status-pill cyan">{device.type}</span></td>
+                  <td>{device.vendor} &middot; {device.model}</td>
+                  <td><span className={`status-pill ${device.status === 'Operational' || device.status === 'Online' ? 'green' : 'amber'}`}>{device.status}</span></td>
+                  <td><strong>{device.healthScore ? `${device.healthScore}%` : '98%'}</strong></td>
+                  <td><small>{device.monitoringSource}</small></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function TeamSection() { return <section className="team-section" id="team"><div className="section-intro"><span className="auth-eyebrow">Your operations team</span><h2>People who keep<br /><span>systems moving.</span></h2></div><div className="team-list"><div><span className="team-avatar teal">JM</span><span><strong>Jordan Miller</strong><small>Infrastructure Lead</small></span><span className="online"><i />Available</span></div><div><span className="team-avatar blue">SK</span><span><strong>Samira Khan</strong><small>Security Operations</small></span><span className="online"><i />Available</span></div><div><span className="team-avatar amber">DR</span><span><strong>Diego Ruiz</strong><small>Automation Architect</small></span><span className="online away"><i />In a meeting</span></div></div></section> }
 function ContactSection() { return <section className="contact-banner" id="contact"><div><span className="auth-eyebrow">Talk to our team</span><h2>Make your next<br /><span>move with confidence.</span></h2><p>Talk to a NOC Automation specialist about network monitoring, cloud operations, security, and your next reliability goal.</p></div><a className="primary-button" href="mailto:operations@nocautomation.com">Contact operations <Zap size={16} /></a></section> }
 
