@@ -81,8 +81,8 @@ const DEMO_ALERTS = [
     ],
   },
   {
-    title: 'Backup job failed on SQL-CORE-02',
-    device: 'SQL-CORE-02',
+    title: 'Backup job failed on CORE-ROUTER-01',
+    device: 'CORE-ROUTER-01',
     severity: 'Critical',
     status: 'Closed',
     owner: 'Jordan Miller',
@@ -97,8 +97,8 @@ const DEMO_ALERTS = [
     ],
   },
   {
-    title: 'Cooling fan speed anomaly on PRD-WEB-01',
-    device: 'Production Web 01',
+    title: 'Cooling fan speed anomaly on SWITCH-NOC-SW1',
+    device: 'SWITCH-NOC-SW1',
     severity: 'Warning',
     status: 'Active',
     owner: null,
@@ -108,8 +108,8 @@ const DEMO_ALERTS = [
     events: [{ text: 'Fan speed sensor crossed warning threshold', minutesAgo: 8 }],
   },
   {
-    title: 'Firmware update applied to RTR-EDGE-12',
-    device: 'Edge Router 12',
+    title: 'Firmware update applied to ASR-ROUTER-02',
+    device: 'ASR-ROUTER-02',
     severity: 'Information',
     status: 'Closed',
     owner: 'Samira Khan',

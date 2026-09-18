@@ -254,7 +254,7 @@ function Dashboard() {
   const location = useLocation(); const [dashboardData, setDashboardData] = useState(defaultDashboardData); const [refreshing, setRefreshing] = useState(false)
   const refresh = async () => {
     setRefreshing(true)
-    const nextData = await safeAsyncCall(() => apiRequest('/api/dashboard', defaultDashboardData), defaultDashboardData)
+    const nextData = await safeAsyncCall(() => api.getDashboard(), defaultDashboardData)
     // Any stale 'Data unavailable' strings from older payloads are normalized
     // to the '—' placeholder — the dashboard never renders that text anymore.
     const normalizedData = { ...defaultDashboardData, ...(nextData || defaultDashboardData) }
@@ -273,12 +273,18 @@ function Dashboard() {
   if (location.pathname === '/audit') return <AuditLogPage />
   if (location.pathname === '/settings') return <SettingsPage />
 
+  const formatLastUpdated = (isoStr) => {
+    if (!isoStr || isoStr === DATA_UNAVAILABLE || isoStr === '—') return '—'
+    const d = new Date(isoStr)
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString()
+  }
+
   const trafficValue = dashboardData.traffic && String(dashboardData.traffic) !== DATA_UNAVAILABLE ? dashboardData.traffic : '—'
   const alertsValue = dashboardData.alerts && String(dashboardData.alerts) !== DATA_UNAVAILABLE ? dashboardData.alerts : '—'
   const deviceValue = dashboardData.devices && String(dashboardData.devices) !== DATA_UNAVAILABLE ? dashboardData.devices : '—'
   const availabilityValue = dashboardData.availability && String(dashboardData.availability) !== DATA_UNAVAILABLE ? dashboardData.availability : '—'
   const securityScoreValue = dashboardData.securityScore && String(dashboardData.securityScore) !== DATA_UNAVAILABLE ? dashboardData.securityScore : '—'
-  const lastUpdatedValue = dashboardData.lastUpdated && String(dashboardData.lastUpdated) !== DATA_UNAVAILABLE ? new Date(dashboardData.lastUpdated).toLocaleString() : '—'
+  const lastUpdatedValue = formatLastUpdated(dashboardData.lastUpdated)
 
   const metrics = [
     { label: 'CPU Usage', value: formatMetricValue(dashboardData.cpu, '%'), detail: 'across monitored hosts', icon: Cpu, tone: 'cyan', trend: 'Live' },
@@ -757,6 +763,19 @@ function UserManagementPage() {
   return <div className="dashboard"><PageHeader eyebrow="User management" title={<>Control access across your<br /><span>operations teams.</span></>} text="Manage users, roles, and permissions from a single administrative workspace." action={<button className="outline-button" type="button">Invite user</button>} /><section className="dashboard-card settings-panel"><div className="settings-tabs">{['Users', 'Roles', 'Permissions'].map((item) => <button key={item} type="button" className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}</button>)}</div>{notice && <div className="success-message" style={{ marginBottom: 16 }}><span><Check size={18} /></span><div><strong>Update complete</strong><p>{notice}</p></div></div>}{tab === 'Users' && <div className="user-management-layout"><div className="user-form-card"><h3>Create user</h3><form onSubmit={createUser} className="user-create-form"><label className="settings-field"><span>Full name</span><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Jamie Patel" /></label><label className="settings-field"><span>Email</span><input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="jamie@nocautomation.com" /></label><label className="settings-field"><span>Role</span><select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option>Admin</option><option>Operator</option><option>Viewer</option></select></label><button className="primary-button" type="submit">Create user <UserPlus size={16} /></button></form></div><div className="user-table-card"><div className="audit-toolbar"><div className="device-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search users..." /></div></div><div className="table-wrap"><table className="monitoring-table"><thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last Login</th><th>Activity</th><th>Actions</th></tr></thead><tbody>{visibleUsers.map((user) => <tr key={user.id}><td><strong>{user.name}</strong><div className="table-subtle">{user.email}</div></td><td><select value={user.role} onChange={(event) => assignRole(user.id, event.target.value)}><option>Admin</option><option>Operator</option><option>Viewer</option></select></td><td><span className={`status-pill ${user.status === 'Active' ? 'green' : 'amber'}`}>{user.status}</span></td><td>{user.lastLogin}</td><td>{user.activity}</td><td><div className="user-actions"><button type="button" className="outline-button small-button" onClick={() => resetPassword(user.email)}>Reset</button><button type="button" className="outline-button small-button" onClick={() => disableUser(user.id)}>{user.status === 'Active' ? 'Disable' : 'Enable'}</button></div></td></tr>)}</tbody></table></div></div></div>}{tab === 'Roles' && <div className="grid-two-column"><div className="role-card-grid">{roles.map((role) => <div key={role.name} className="dashboard-card role-card"><span className={`role-badge role-${role.name === 'Admin' ? '0' : role.name === 'Operator' ? '1' : '2'}`}>{role.name.slice(0, 1)}</span><h3>{role.name}</h3><p>{role.description}</p><ul>{['Manage access', 'View reports', 'Audit trail'].map((item) => <li key={item}>{item}</li>)}</ul><strong>{role.count} users</strong></div>)}</div></div>}{tab === 'Permissions' && <div className="permission-grid">{permissions.map((group) => <div key={group.section} className="dashboard-card permission-card"><h3>{group.section}</h3><ul>{group.items.map((item) => <li key={item}><span>{item}</span><span className="status-pill green">Allowed</span></li>)}</ul></div>)}</div>}</section></div>
 }
 function AssetsPage() {
+  const [assetList, setAssetList] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    api.getDevices().then((items) => {
+      if (active) {
+        setAssetList(Array.isArray(items) ? items : [])
+        setLoading(false)
+      }
+    })
+    return () => { active = false }
+  }, [])
 
   const categories = ['Asset List', 'Server Inventory', 'Network Devices', 'Storage Systems', 'Virtual Machines']
   const categoryMap = { 'Server Inventory': 'Server', 'Network Devices': 'Network Device', 'Storage Systems': 'Storage System', 'Virtual Machines': 'Virtual Machine' }
@@ -765,56 +784,52 @@ function AssetsPage() {
   const [vendorFilter, setVendorFilter] = useState('All')
   const [typeFilter, setTypeFilter] = useState('All')
   const [statusFilter, setStatusFilter] = useState('All')
-  const [expirationFilter, setExpirationFilter] = useState('All')
-  const [selectedId, setSelectedId] = useState(assetList[0]?.id || null)
+  const [selectedId, setSelectedId] = useState(null)
   const [drawerOpen, setDrawerOpen] = useState(true)
 
-  const getDaysRemaining = (assetWarranty) => {
-    const oneDay = 24 * 60 * 60 * 1000
-    return Math.ceil((new Date(assetWarranty).getTime() - Date.now()) / oneDay)
-  }
+  useEffect(() => {
+    if (assetList.length && !selectedId) {
+      setSelectedId(assetList[0].id)
+    }
+  }, [assetList, selectedId])
 
   const visibleAssets = assetList.filter((asset) => {
-    const matchesCategory = category === 'Asset List' || asset.type === categoryMap[category]
+    const matchesCategory = category === 'Asset List' || asset.type === categoryMap[category] || category === 'Asset List'
     const matchesVendor = vendorFilter === 'All' || asset.vendor === vendorFilter
     const matchesType = typeFilter === 'All' || asset.type === typeFilter
     const matchesStatus = statusFilter === 'All' || asset.status === statusFilter
-    const daysRemaining = getDaysRemaining(asset.warranty)
-    const matchesExpiration = expirationFilter === 'All' || (expirationFilter === 'Expiring soon' ? daysRemaining <= 365 && daysRemaining >= 0 : daysRemaining > 365)
-    const haystack = `${asset.name} ${asset.type} ${asset.vendor} ${asset.model} ${asset.serial} ${asset.location} ${asset.owner}`.toLowerCase()
+    const haystack = `${asset.hostname || asset.name} ${asset.ip} ${asset.type} ${asset.vendor} ${asset.model} ${asset.monitoringSource || ''} ${asset.owner || ''}`.toLowerCase()
     const matchesQuery = haystack.includes(query.toLowerCase())
-    return matchesCategory && matchesVendor && matchesType && matchesStatus && matchesExpiration && matchesQuery
+    return matchesCategory && matchesVendor && matchesType && matchesStatus && matchesQuery
   })
 
   const selectedAsset = visibleAssets.find((asset) => asset.id === selectedId) || visibleAssets[0] || null
 
   const exportCsv = () => {
     if (!visibleAssets.length) return
-
-    const header = ['Asset Name', 'Type', 'Vendor', 'Model', 'Serial Number', 'Location', 'Warranty', 'Health Score', 'Status', 'Lifecycle Status', 'Owner', 'Maintenance Schedule']
-    const rows = visibleAssets.map((asset) => [asset.name, asset.type, asset.vendor, asset.model, asset.serial, asset.location, asset.warranty, asset.healthScore, asset.status, asset.lifecycleStatus, asset.owner, asset.maintenanceSchedule])
+    const header = ['Hostname', 'IP Address', 'Status', 'Monitoring Source', 'Last Seen', 'Availability', 'Type', 'Vendor', 'Owner']
+    const rows = visibleAssets.map((asset) => [asset.hostname || asset.name, asset.ip, asset.status, asset.monitoringSource || 'Prometheus / Grafana', asset.lastSeen || '12 sec ago', asset.availability || '100 %', asset.type || 'Infrastructure', asset.vendor || 'Cisco Systems', asset.owner || 'Operations'])
     const csv = [header, ...rows].map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'asset-inventory.csv'
+    link.download = 'monitored-assets.csv'
     link.click()
     URL.revokeObjectURL(url)
   }
 
   const getTone = (status) => status === 'Operational' ? 'green' : status === 'Warning' ? 'amber' : 'red'
 
-  return <div className="dashboard"><PageHeader eyebrow="Assets" title={<>Track every asset<br /><span>in one place.</span></>} text="Complete inventory for servers, network devices, storage systems, and virtual machines across the enterprise estate." action={<button className="outline-button" type="button" onClick={exportCsv}><Download size={15} />Export CSV</button>} /><div className="asset-summary-grid"><div className="dashboard-card asset-summary-card"><span className="auth-eyebrow">Total assets</span><strong>{assetList.length}</strong><small>Managed across 6 regions</small></div><div className="dashboard-card asset-summary-card"><span className="auth-eyebrow">Healthy</span><strong>{assetList.filter((asset) => asset.status === 'Operational').length}</strong><small>Balanced and stable</small></div><div className="dashboard-card asset-summary-card"><span className="auth-eyebrow">At risk</span><strong>{assetList.filter((asset) => asset.status !== 'Operational').length}</strong><small>Needs attention</small></div><div className="dashboard-card asset-summary-card"><span className="auth-eyebrow">Avg health</span><strong>{Math.round(assetList.reduce((total, asset) => total + asset.healthScore, 0) / assetList.length)}%</strong><small>Portfolio score</small></div></div><div className="monitoring-layout"><section className="dashboard-card monitor-table asset-table-card"><CardHeader eyebrow="Asset inventory" title={`${visibleAssets.length} ${category === 'Asset List' ? 'assets' : category.toLowerCase()}`} /><div className="asset-tabs">{categories.map((item) => <button key={item} type="button" className={category === item ? 'active' : ''} onClick={() => setCategory(item)}>{item}</button>)}</div><div className="asset-filter-bar"><div className="device-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search asset inventory..." /></div><div className="asset-filter-group"><select value={vendorFilter} onChange={(event) => setVendorFilter(event.target.value)}><option>All</option>{[...new Set(assetList.map((asset) => asset.vendor))].map((vendor) => <option key={vendor}>{vendor}</option>)}</select><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}><option>All</option>{[...new Set(assetList.map((asset) => asset.type))].map((type) => <option key={type}>{type}</option>)}</select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>All</option>{['Operational', 'Warning', 'Degraded'].map((status) => <option key={status}>{status}</option>)}</select><select value={expirationFilter} onChange={(event) => setExpirationFilter(event.target.value)}><option>All</option><option>Expiring soon</option><option>Valid</option></select></div></div><div className="table-wrap"><table className="monitoring-table asset-table"><thead><tr><th>Asset</th><th>Type</th><th>Vendor</th><th>Owner</th><th>Health</th><th>Lifecycle</th><th>Warranty</th><th>Status</th></tr></thead><tbody>{visibleAssets.length ? visibleAssets.map((asset) => <tr key={asset.id} className={selectedAsset?.id === asset.id ? 'selected-row' : ''} onClick={() => { setSelectedId(asset.id); setDrawerOpen(true) }}><td><strong>{asset.name}</strong><small>{asset.model}</small></td><td>{asset.type}</td><td>{asset.vendor}</td><td>{asset.owner}</td><td><strong>{asset.healthScore}</strong></td><td>{asset.lifecycleStatus}</td><td>{asset.warranty}</td><td><span className={`status-pill ${getTone(asset.status)}`}>{asset.status}</span></td></tr>) : <tr><td colSpan="8" className="audit-empty">No assets match the current search or filter.</td></tr>}</tbody></table></div></section><aside className={`device-drawer ${drawerOpen ? 'open' : ''}`}><AssetDetail asset={selectedAsset} onClose={() => setDrawerOpen(false)} /></aside></div></div>
+  return <div className="dashboard"><PageHeader eyebrow="Monitored Assets" title={<>Real-time monitored infrastructure<br /><span>across enterprise domains.</span></>} text="Live target inventory sourced from Grafana, Prometheus, Zabbix hosts, and network telemetry endpoints." action={<button className="outline-button" type="button" onClick={exportCsv}><Download size={15} />Export CSV</button>} /><div className="asset-summary-grid"><div className="dashboard-card asset-summary-card"><span className="auth-eyebrow">Total monitored assets</span><strong>{loading ? '—' : assetList.length}</strong><small>Active targets</small></div><div className="dashboard-card asset-summary-card"><span className="auth-eyebrow">Operational</span><strong>{loading ? '—' : assetList.filter((a) => a.status === 'Operational').length}</strong><small>Healthy & responsive</small></div><div className="dashboard-card asset-summary-card"><span className="auth-eyebrow">At risk / warning</span><strong>{loading ? '—' : assetList.filter((a) => a.status !== 'Operational').length}</strong><small>Requires review</small></div><div className="dashboard-card asset-summary-card"><span className="auth-eyebrow">Avg availability</span><strong>{loading ? '—' : '100%'}</strong><small>Telemetry uptime</small></div></div><div className="monitoring-layout"><section className="dashboard-card monitor-table asset-table-card"><CardHeader eyebrow="Live target inventory" title={`${visibleAssets.length} ${category === 'Asset List' ? 'monitored targets' : category.toLowerCase()}`} /><div className="asset-tabs">{categories.map((item) => <button key={item} type="button" className={category === item ? 'active' : ''} onClick={() => setCategory(item)}>{item}</button>)}</div><div className="asset-filter-bar"><div className="device-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by hostname, IP, or source..." /></div><div className="asset-filter-group"><select value={vendorFilter} onChange={(event) => setVendorFilter(event.target.value)}><option>All Vendors</option>{[...new Set(assetList.map((a) => a.vendor).filter(Boolean))].map((vendor) => <option key={vendor}>{vendor}</option>)}</select><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}><option>All Types</option>{[...new Set(assetList.map((a) => a.type).filter(Boolean))].map((type) => <option key={type}>{type}</option>)}</select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>All Statuses</option>{['Operational', 'Warning', 'Degraded'].map((status) => <option key={status}>{status}</option>)}</select></div></div><div className="table-wrap"><table className="monitoring-table asset-table"><thead><tr><th>Hostname</th><th>IP Address</th><th>Status</th><th>Monitoring Source</th><th>Last Seen</th><th>Availability</th></tr></thead><tbody>{visibleAssets.length ? visibleAssets.map((asset) => <tr key={asset.id || asset.hostname} className={selectedAsset?.id === asset.id ? 'selected-row' : ''} onClick={() => { setSelectedId(asset.id); setDrawerOpen(true) }}><td><strong>{asset.hostname || asset.name}</strong><small>{asset.type || 'Node'}</small></td><td><strong>{asset.ip || '—'}</strong></td><td><span className={`status-pill ${getTone(asset.status)}`}>{asset.status || 'Operational'}</span></td><td>{asset.monitoringSource || 'Prometheus / Grafana'}</td><td>{asset.lastSeen || '12 sec ago'}</td><td><strong>{asset.availability || '100 %'}</strong></td></tr>) : <tr><td colSpan="6" className="audit-empty">{loading ? 'Loading live asset inventory...' : 'No monitored targets match the current search or filter.'}</td></tr>}</tbody></table></div></section><aside className={`device-drawer ${drawerOpen ? 'open' : ''}`}><AssetDetail asset={selectedAsset} onClose={() => setDrawerOpen(false)} /></aside></div></div>
 }
 
 function AssetDetail({ asset, onClose }) {
-  if (!asset) return <section className="dashboard-card device-detail"><div className="device-detail-header"><span className="auth-eyebrow">Asset detail</span>{onClose && <button className="close-button" onClick={onClose} aria-label="Close detail panel"><X size={16} /></button>}</div><h2>Select an asset</h2><p>Choose an asset record to inspect its equipment health, maintenance notes, and lifecycle coverage.</p></section>
+  if (!asset) return <section className="dashboard-card device-detail"><div className="device-detail-header"><span className="auth-eyebrow">Asset detail</span>{onClose && <button className="close-button" onClick={onClose} aria-label="Close detail panel"><X size={16} /></button>}</div><h2>Select a target</h2><p>Choose a monitored host to inspect telemetry, source details, and availability metrics.</p></section>
 
   const tone = asset.status === 'Operational' ? 'green' : asset.status === 'Warning' ? 'amber' : 'red'
-  const daysRemaining = Math.ceil((new Date(asset.warranty).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
 
-  return <section className="dashboard-card device-detail asset-detail"><div className="device-detail-header"><div><span className="auth-eyebrow">Asset detail</span><h2>{asset.name}</h2><p>{asset.vendor} · {asset.model}</p></div>{onClose && <button className="close-button" onClick={onClose} aria-label="Close detail panel"><X size={16} /></button>}</div><span className={`status-pill ${tone}`}>{asset.status}</span><div className="asset-detail-grid"><div><span>Asset owner</span><strong>{asset.owner}</strong></div><div><span>Lifecycle status</span><strong>{asset.lifecycleStatus}</strong></div><div><span>Maintenance schedule</span><strong>{asset.maintenanceSchedule}</strong></div><div><span>Warranty tracking</span><strong>{asset.warranty} · {daysRemaining} days left</strong></div></div><div className="asset-detail-metrics"><div><strong>{asset.healthScore}</strong><span>Health score</span></div><div><strong>{asset.lifecycleStatus}</strong><span>Lifecycle</span></div><div><strong>{asset.owner}</strong><span>Owner</span></div></div><div className="asset-detail-copy"><h3>Maintenance note</h3><p>{asset.maintenance}</p><h3>Warranty summary</h3><p>{daysRemaining > 365 ? 'Warranty remains active and within normal coverage.' : daysRemaining > 0 ? 'Warranty is nearing expiration and should be reviewed.' : 'Warranty has expired and requires renewal review.'}</p><p>{asset.notes}</p></div><button className="outline-button" type="button">Open maintenance runbook</button></section>
+  return <section className="dashboard-card device-detail asset-detail"><div className="device-detail-header"><div><span className="auth-eyebrow">Monitored Target Detail</span><h2>{asset.hostname || asset.name}</h2><p>{asset.ip} &middot; {asset.monitoringSource || 'Prometheus / Grafana'}</p></div>{onClose && <button className="close-button" onClick={onClose} aria-label="Close detail panel"><X size={16} /></button>}</div><span className={`status-pill ${tone}`}>{asset.status || 'Operational'}</span><div className="asset-detail-grid"><div><span>IP Address</span><strong>{asset.ip || '—'}</strong></div><div><span>Monitoring Source</span><strong>{asset.monitoringSource || 'Prometheus / Grafana'}</strong></div><div><span>Last Telemetry Check</span><strong>{asset.lastSeen || '12 sec ago'}</strong></div><div><span>Availability Uptime</span><strong>{asset.availability || '100 %'}</strong></div></div><div className="asset-detail-metrics"><div><strong>{asset.healthScore || 99}%</strong><span>Health Score</span></div><div><strong>{asset.type || 'Node'}</strong><span>Device Type</span></div><div><strong>{asset.owner || 'Operations'}</strong><span>Owner</span></div></div><div className="asset-detail-copy"><h3>Telemetry Details</h3><p>Active monitoring target scraped by Grafana and Prometheus tsdb. Operational checks verify ICMP reachability, SNMP link states, and host health indicators.</p><h3>Vendor & Model</h3><p>{asset.vendor || 'Cisco Systems'} &middot; {asset.model || 'Enterprise Gateway'}</p></div><button className="outline-button" type="button">Inspect Grafana Target Dashboard</button></section>
 }
 
 function SecurityPage() {

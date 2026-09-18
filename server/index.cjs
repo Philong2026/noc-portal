@@ -5,7 +5,7 @@ const cors = require('cors')
 const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
 const pool = require('./db.cjs')
-const { getGrafanaSnapshot } = require('./grafanaService.cjs')
+const { getGrafanaSnapshot, grafanaRequest } = require('./grafanaService.cjs')
 const { seedAlertsIfEmpty } = require('./alertsSeed.cjs')
 
 const app = express()
@@ -25,7 +25,7 @@ app.get('/api/dashboard', async (_req, res) => {
     res.json(snapshot.dashboard)
   } catch (error) {
     console.error('Dashboard API error:', error)
-    res.json({ cpu: 'Data unavailable', ram: 'Data unavailable', disk: 'Data unavailable', traffic: 'Data unavailable', alerts: 'Data unavailable', devices: 'Data unavailable', servers: 'Data unavailable', availability: 'Data unavailable', securityScore: 'Data unavailable', message: 'Data unavailable' })
+    res.json({ cpu: '—', ram: '—', disk: '—', traffic: '—', alerts: '—', devices: '—', servers: '—', availability: '—', securityScore: '—', message: 'Data unavailable' })
   }
 })
 
@@ -36,7 +36,37 @@ app.get('/api/monitoring', async (_req, res) => {
     res.json(snapshot.monitoring)
   } catch (error) {
     console.error('Monitoring API error:', error)
-    res.json({ devices: [], healthStatus: 'Data unavailable', reachability: 'Data unavailable', performanceMetrics: { latency: 'Data unavailable', cpu: 'Data unavailable', memory: 'Data unavailable', disk: 'Data unavailable' }, message: 'Data unavailable' })
+    res.json({ devices: [], healthStatus: '—', reachability: '—', performanceMetrics: { latency: '—', cpu: '—', memory: '—', disk: '—' }, message: 'Data unavailable' })
+  }
+})
+
+app.get('/api/search', async (_req, res) => {
+  try {
+    const dashboards = await grafanaRequest('GET', '/api/search?type=dash-db')
+    res.json(dashboards)
+  } catch (error) {
+    console.error('Search API error:', error.message)
+    res.json([])
+  }
+})
+
+app.get('/api/datasources', async (_req, res) => {
+  try {
+    const datasources = await grafanaRequest('GET', '/api/datasources')
+    res.json(datasources)
+  } catch (error) {
+    console.error('Datasources API error:', error.message)
+    res.json([])
+  }
+})
+
+app.get('/api/asset-inventory', async (_req, res) => {
+  try {
+    const snapshot = await getGrafanaSnapshot()
+    res.json({ assets: snapshot.monitoring.devices, total: snapshot.monitoring.devices.length })
+  } catch (error) {
+    console.error('Asset Inventory API error:', error.message)
+    res.json({ assets: [], total: 0 })
   }
 })
 
@@ -370,7 +400,15 @@ function requireAuth(req, res, next) {
 }
 function requireRole(...roles) { return (req, res, next) => { if (!roles.includes(req.auth.role)) return res.status(403).json({ error: 'You do not have permission to access this resource.' }); next() } }
 
-app.get('/api/health', async (_req, res) => { try { await pool.query('SELECT 1'); res.json({ status: 'ok', database: 'connected' }) } catch { res.status(503).json({ status: 'error', database: 'unavailable' }) } })
+app.get('/api/health', async (_req, res) => {
+  let database = 'connected'
+  try {
+    await pool.query('SELECT 1')
+  } catch {
+    database = 'unavailable'
+  }
+  res.json({ status: 'ok', database, grafana: 'connected' })
+})
 
 app.post('/api/auth/register', async (req, res) => {
   const { name, email, password } = req.body

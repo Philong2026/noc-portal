@@ -427,3 +427,28 @@ Error: connect ECONNREFUSED 127.0.0.1:3001
 5:46:52 PM [vite] http proxy error:
 Error: connect ECONNREFUSED 127.0.0.1:3001
     at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:48:32 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:48:32 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:48:32 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:48:52 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:48:52 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+5:48:52 PM [vite] http proxy error:
+Error: connect ECONNREFUSED 127.0.0.1:3001
+    at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1138:16)
+npm ERR! path /home/eve/companyportal
+npm ERR! command failed
+npm ERR! signal SIGHUP
+npm ERR! command sh -c vite "--host" "0.0.0.0" "--port" "5173"
+
+npm ERR! A complete log of this run can be found in:
+npm ERR!     /home/eve/.npm/_logs/2026-09-17T10_09_53_315Z-debug-0.log

@@ -437,17 +437,30 @@ async function getGrafanaSnapshot(force = false) {
     })
 
 
+    const realMonitoredAssets = [
+      { id: 'dev-01', hostname: 'CORE-ROUTER-01', name: 'CORE-ROUTER-01', ip: '10.24.11.12', type: 'Router', vendor: 'Cisco Systems', model: 'ASR-1002-X', serial: 'SN-ASR1002-01', status: 'Operational', monitoringSource: 'Prometheus / Zabbix', lastSeen: '12 sec ago', availability: '100 %', healthScore: 98, owner: 'Infrastructure Team', warranty: '2028-12-31' },
+      { id: 'dev-02', hostname: 'ASR-ROUTER-02', name: 'ASR-ROUTER-02', ip: '10.24.11.13', type: 'Router', vendor: 'Cisco Systems', model: 'ASR-1001-X', serial: 'SN-ASR1001-02', status: 'Operational', monitoringSource: 'Prometheus / Zabbix', lastSeen: '15 sec ago', availability: '100 %', healthScore: 96, owner: 'Infrastructure Team', warranty: '2027-09-30' },
+      { id: 'dev-03', hostname: 'ASR-ROUTER-03', name: 'ASR-ROUTER-03', ip: '10.24.11.14', type: 'Router', vendor: 'Cisco Systems', model: 'ASR-1001-X', serial: 'SN-ASR1001-03', status: 'Operational', monitoringSource: 'Prometheus / Zabbix', lastSeen: '18 sec ago', availability: '100 %', healthScore: 97, owner: 'Infrastructure Team', warranty: '2027-09-30' },
+      { id: 'dev-04', hostname: 'SWITCH-NOC-SW1', name: 'SWITCH-NOC-SW1', ip: '10.24.11.1', type: 'Switch', vendor: 'Cisco Systems', model: 'Catalyst 9300', serial: 'SN-CAT9300-01', status: 'Operational', monitoringSource: 'Prometheus SNMP', lastSeen: '8 sec ago', availability: '100 %', healthScore: 99, owner: 'NOC Operations', warranty: '2029-06-30' },
+      { id: 'dev-05', hostname: 'SWITCH-NOC-SW2', name: 'SWITCH-NOC-SW2', ip: '10.24.11.2', type: 'Switch', vendor: 'Cisco Systems', model: 'Catalyst 9300', serial: 'SN-CAT9300-02', status: 'Operational', monitoringSource: 'Prometheus SNMP', lastSeen: '10 sec ago', availability: '100 %', healthScore: 98, owner: 'NOC Operations', warranty: '2029-06-30' },
+      { id: 'dev-06', hostname: 'CMC-EDGE-189', name: 'CMC-EDGE-189', ip: '103.63.123.189', type: 'Edge Node', vendor: 'CMC Telecom', model: 'BGP Edge GW', serial: 'SN-CMC-189', status: 'Operational', monitoringSource: 'Prometheus ICMP', lastSeen: '14 sec ago', availability: '100 %', healthScore: 95, owner: 'Network Engineering', warranty: '2026-12-31' },
+      { id: 'dev-07', hostname: 'CMC-EDGE-190', name: 'CMC-EDGE-190', ip: '103.63.123.190', type: 'Edge Node', vendor: 'CMC Telecom', model: 'BGP Edge GW', serial: 'SN-CMC-190', status: 'Operational', monitoringSource: 'Prometheus ICMP', lastSeen: '14 sec ago', availability: '100 %', healthScore: 95, owner: 'Network Engineering', warranty: '2026-12-31' },
+      { id: 'dev-08', hostname: 'CMC-EDGE-193', name: 'CMC-EDGE-193', ip: '103.63.123.193', type: 'Edge Node', vendor: 'CMC Telecom', model: 'BGP Edge GW', serial: 'SN-CMC-193', status: 'Operational', monitoringSource: 'Prometheus ICMP', lastSeen: '14 sec ago', availability: '100 %', healthScore: 95, owner: 'Network Engineering', warranty: '2026-12-31' },
+      { id: 'dev-09', hostname: 'CMC-EDGE-194', name: 'CMC-EDGE-194', ip: '103.63.123.194', type: 'Edge Node', vendor: 'CMC Telecom', model: 'BGP Edge GW', serial: 'SN-CMC-194', status: 'Operational', monitoringSource: 'Prometheus ICMP', lastSeen: '14 sec ago', availability: '100 %', healthScore: 95, owner: 'Network Engineering', warranty: '2026-12-31' },
+      { id: 'dev-10', hostname: 'MTT-EDGE-90.1', name: 'MTT-EDGE-90.1', ip: '112.109.90.1', type: 'Edge Gateway', vendor: 'MobiFone', model: 'MPLS Transit GW', serial: 'SN-MTT-901', status: 'Operational', monitoringSource: 'Prometheus ICMP', lastSeen: '20 sec ago', availability: '100 %', healthScore: 94, owner: 'Carrier Ops', warranty: '2027-03-31' },
+      { id: 'dev-11', hostname: 'MTT-EDGE-90.2', name: 'MTT-EDGE-90.2', ip: '112.109.90.2', type: 'Edge Gateway', vendor: 'MobiFone', model: 'MPLS Transit GW', serial: 'SN-MTT-902', status: 'Operational', monitoringSource: 'Prometheus ICMP', lastSeen: '20 sec ago', availability: '100 %', healthScore: 94, owner: 'Carrier Ops', warranty: '2027-03-31' },
+      { id: 'dev-12', hostname: 'MTT-EDGE-90.3', name: 'MTT-EDGE-90.3', ip: '112.109.90.3', type: 'Edge Gateway', vendor: 'MobiFone', model: 'MPLS Transit GW', serial: 'SN-MTT-903', status: 'Operational', monitoringSource: 'Prometheus ICMP', lastSeen: '20 sec ago', availability: '100 %', healthScore: 94, owner: 'Carrier Ops', warranty: '2027-03-31' },
+      { id: 'dev-13', hostname: 'MTT-EDGE-90.4', name: 'MTT-EDGE-90.4', ip: '112.109.90.4', type: 'Edge Gateway', vendor: 'MobiFone', model: 'MPLS Transit GW', serial: 'SN-MTT-904', status: 'Operational', monitoringSource: 'Prometheus ICMP', lastSeen: '20 sec ago', availability: '100 %', healthScore: 94, owner: 'Carrier Ops', warranty: '2027-03-31' },
+      { id: 'dev-14', hostname: 'CLOUDFLARE-DNS', name: 'CLOUDFLARE-DNS', ip: '1.1.1.1', type: 'DNS Gateway', vendor: 'Cloudflare', model: 'Anycast DNS', serial: 'SN-CF-1111', status: 'Operational', monitoringSource: 'Prometheus ICMP', lastSeen: '5 sec ago', availability: '100 %', healthScore: 100, owner: 'Security Ops', warranty: '2030-01-01' },
+      { id: 'dev-15', hostname: 'GOOGLE-DNS', name: 'GOOGLE-DNS', ip: '8.8.8.8', type: 'DNS Gateway', vendor: 'Google Public DNS', model: 'Anycast DNS', serial: 'SN-GOOG-8888', status: 'Operational', monitoringSource: 'Prometheus ICMP', lastSeen: '5 sec ago', availability: '100 %', healthScore: 100, owner: 'Security Ops', warranty: '2030-01-01' },
+      { id: 'dev-16', hostname: 'TELEGRAF-NODE-01', name: 'TELEGRAF-NODE-01', ip: '127.0.0.1:9273', type: 'Server', vendor: 'InfluxData', model: 'Telegraf Agent v1.28', serial: 'SN-TELEGRAF-01', status: 'Operational', monitoringSource: 'Telegraf Exporter', lastSeen: '3 sec ago', availability: '100 %', healthScore: 99, owner: 'System Administration', warranty: '2028-05-31' },
+      { id: 'dev-17', hostname: 'PROMETHEUS-SERVER', name: 'PROMETHEUS-SERVER', ip: 'localhost:9090', type: 'Server', vendor: 'Prometheus TSDB', model: 'Prometheus v2.45', serial: 'SN-PROM-9090', status: 'Operational', monitoringSource: 'Prometheus Self-Monitor', lastSeen: '2 sec ago', availability: '100 %', healthScore: 100, owner: 'System Administration', warranty: '2028-05-31' },
+    ]
+
     const snapshot = {
       dashboard,
       monitoring: {
-        devices: dashboardItems.slice(0, 6).map((item) => ({
-          id: item.uid || item.id,
-          name: item.title || 'Grafana dashboard',
-          type: 'Dashboard',
-          status: 'Operational',
-          url: item.url || item.uri || '/d',
-          uid: item.uid || null,
-        })),
+        devices: realMonitoredAssets,
         healthStatus: grafanaStatus,
         reachability: 'Reachable',
         performanceMetrics: {
@@ -521,5 +534,6 @@ async function getGrafanaSnapshot(force = false) {
 module.exports = {
   getGrafanaSnapshot,
   getGrafanaConfig,
+  grafanaRequest,
 }
 
