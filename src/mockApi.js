@@ -68,6 +68,20 @@ const toNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+const VERIFIED_INVENTORY_IPS = Object.freeze({
+  "CORE-ROUTER-01": "103.122.160.129",
+  "ASR-ROUTER-02": "103.122.160.120",
+  "ASR-ROUTER-03": "103.122.160.119",
+  "SWITCH-NOC-SW1": "171.244.204.90",
+  "SWITCH-NOC-SW2": "171.244.204.91",
+})
+
+const normalizeInventory = (devices) => (Array.isArray(devices) ? devices : []).map((device) => {
+  const key = String(device?.hostname || device?.name || "").trim().toUpperCase()
+  const ip = VERIFIED_INVENTORY_IPS[key]
+  return ip ? { ...device, ip } : device
+})
+
 // Same call surface the app already uses — every method now returns live data.
 export const api = {
   // Grafana snapshot metrics (cpu / ram / disk / traffic / counts).
@@ -89,9 +103,9 @@ export const api = {
   getDevices: async () => {
     const payload = await backendFetch('/api/monitoring', null)
     if (payload && Array.isArray(payload.devices) && payload.devices.length) {
-      return payload.devices
+      return normalizeInventory(payload.devices)
     }
-    return [
+    return normalizeInventory([
       { id: 'dev-01', hostname: 'CORE-ROUTER-01', name: 'CORE-ROUTER-01', ip: '103.122.160.129', topologySubnet: '10.24.11.0/24', type: 'Router', vendor: 'Cisco Systems', model: 'ASR-1002-X', serial: 'SN-ASR1002-01', status: 'Operational', monitoringSource: 'Prometheus / Zabbix', lastSeen: '12 sec ago', availability: '100 %', healthScore: 98, owner: 'Infrastructure Team', warranty: '2028-12-31' },
       { id: 'dev-02', hostname: 'ASR-ROUTER-02', name: 'ASR-ROUTER-02', ip: '103.122.160.120', topologySubnet: '10.24.11.0/24', type: 'Router', vendor: 'Cisco Systems', model: 'ASR-1001-X', serial: 'SN-ASR1001-02', status: 'Operational', monitoringSource: 'Prometheus / Zabbix', lastSeen: '15 sec ago', availability: '100 %', healthScore: 96, owner: 'Infrastructure Team', warranty: '2027-09-30' },
       { id: 'dev-03', hostname: 'ASR-ROUTER-03', name: 'ASR-ROUTER-03', ip: '103.122.160.119', topologySubnet: '10.24.11.0/24', type: 'Router', vendor: 'Cisco Systems', model: 'ASR-1001-X', serial: 'SN-ASR1001-03', status: 'Operational', monitoringSource: 'Prometheus / Zabbix', lastSeen: '18 sec ago', availability: '100 %', healthScore: 97, owner: 'Infrastructure Team', warranty: '2027-09-30' },
@@ -109,7 +123,7 @@ export const api = {
       { id: 'dev-15', hostname: 'GOOGLE-DNS', name: 'GOOGLE-DNS', ip: '8.8.8.8', type: 'DNS Gateway', vendor: 'Google Public DNS', model: 'Anycast DNS', serial: 'SN-GOOG-8888', status: 'Operational', monitoringSource: 'Prometheus ICMP', lastSeen: '5 sec ago', availability: '100 %', healthScore: 100, owner: 'Security Ops', warranty: '2030-01-01' },
       { id: 'dev-16', hostname: 'TELEGRAF-NODE-01', name: 'TELEGRAF-NODE-01', ip: '127.0.0.1:9273', type: 'Server', vendor: 'InfluxData', model: 'Telegraf Agent v1.28', serial: 'SN-TELEGRAF-01', status: 'Operational', monitoringSource: 'Telegraf Exporter', lastSeen: '3 sec ago', availability: '100 %', healthScore: 99, owner: 'System Administration', warranty: '2028-05-31' },
       { id: 'dev-17', hostname: 'PROMETHEUS-SERVER', name: 'PROMETHEUS-SERVER', ip: 'localhost:9090', type: 'Server', vendor: 'Prometheus TSDB', model: 'Prometheus v2.45', serial: 'SN-PROM-9090', status: 'Operational', monitoringSource: 'Prometheus Self-Monitor', lastSeen: '2 sec ago', availability: '100 %', healthScore: 100, owner: 'System Administration', warranty: '2028-05-31' },
-    ]
+    ])
   },
 
   // Alerts come from the live alerts API (Grafana-fed ingestion workflow);
