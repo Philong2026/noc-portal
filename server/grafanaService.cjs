@@ -267,6 +267,141 @@ async function resolveMetric(prometheusUid, key, definition) {
 }
 
 
+// ---------------------------------------------------------------------------
+// Per-device telemetry — live status, latency, and availability straight from
+// Prometheus targets: scrape health (`up`), blackbox probe results
+// (`probe_success`), probe/scrape durations, and 24h uptime history.
+// Inventory devices are matched to targets by IP or hostname→job naming.
+// Devices with no matching target keep their manifest values unchanged —
+// no fabricated numbers.
+// ---------------------------------------------------------------------------
+const DEVICE_TELEMETRY_QUERIES = [
+  { key: 'up', expr: 'up' },
+  { key: 'probeSuccess', expr: 'probe_success' },
+  { key: 'probeDuration', expr: 'probe_duration_seconds' },
+  { key: 'scrapeDuration', expr: 'scrape_duration_seconds' },
+  { key: 'availability', expr: 'avg_over_time(up[24h])' },
+  { key: 'probeAvailability', expr: 'avg_over_time(probe_success[24h])' },
+]
+
+const normKey = (value) => String(value || '').trim().toLowerCase()
+const hostKey = (value) => normKey(value).split(':')[0]
+
+function deviceCandidateKeys(device) {
+  const type = normKey(device.type)
+  const hostname = normKey(device.hostname)
+  const ip = normKey(device.ip)
+  const suffix = (String(device.hostname || '').match(/(\d+)\s*$/) || [])[1] || ''
+  const keyword = type.includes('router') ? 'router' : type.includes('switch') ? 'sw' : ''
+  const keys = [ip, hostKey(ip), hostname, hostname.replace(/-/g, ''), hostname.split('-').pop()]
+  if (keyword && suffix) {
+    keys.push(`${keyword}${suffix}`)
+    keys.push(`${keyword}${Number(suffix)}`)
+  }
+  return keys.filter(Boolean)
+}
+
+function extractLabelledSeries(response, refId) {
+  const rows = []
+  for (const frame of resultFrames(response, refId)) {
+    const labels = {}
+    for (const field of ((frame && frame.schema && frame.schema.fields) || [])) {
+      if (field && field.labels) Object.assign(labels, field.labels)
+    }
+    const values = frame && frame.data && Array.isArray(frame.data.values) ? frame.data.values : []
+    const numeric = values.length > 1 ? values[1] : []
+    let value = null
+    for (let i = numeric.length - 1; i >= 0; i -= 1) {
+      const parsed = Number(numeric[i])
+      if (Number.isFinite(parsed)) {
+        value = parsed
+        break
+      }
+    }
+    rows.push({ labels, value })
+  }
+  return rows
+}
+
+function findTelemetryRow(rows, candidates) {
+  return rows.find((row) => {
+    const instance = normKey(row.labels.instance)
+    const instanceHost = hostKey(instance)
+    const job = normKey(row.labels.job)
+    return candidates.includes(instance) || candidates.includes(instanceHost) || candidates.includes(job)
+  }) || null
+}
+
+function formatLatency(ms) {
+  const value = ms >= 1000 ? Math.round(ms) : ms >= 10 ? Math.round(ms * 10) / 10 : Math.round(ms * 100) / 100
+  return `${value} ms`
+}
+
+async function collectDeviceTelemetry(prometheusUid, devices) {
+  const list = Array.isArray(devices) ? devices : []
+  if (!list.length) return list
+  const datasource = { type: 'prometheus', uid: prometheusUid }
+
+  const outcomes = await Promise.allSettled(DEVICE_TELEMETRY_QUERIES.map((query) =>
+    queryDatasource(datasource, [{ refId: 'A', datasource, expr: query.expr, instant: true, range: false }], { from: 'now-15m', to: 'now' })))
+
+  const telemetry = {}
+  DEVICE_TELEMETRY_QUERIES.forEach((query, index) => {
+    const outcome = outcomes[index]
+    if (outcome.status !== 'fulfilled') {
+      logMetricMapping(`Device telemetry ${query.key}`, { error: outcome.reason && outcome.reason.message })
+      telemetry[query.key] = []
+      return
+    }
+    telemetry[query.key] = extractLabelledSeries(outcome.value, 'A')
+    logMetricMapping(`Device telemetry ${query.key}`, { targets: telemetry[query.key].length })
+  })
+
+  const findRow = (key, candidates) => findTelemetryRow(telemetry[key] || [], candidates)
+
+  return list.map((device) => {
+    const candidates = deviceCandidateKeys(device)
+    const upRow = findRow('up', candidates)
+    const probeRow = findRow('probeSuccess', candidates)
+    const probeDurationRow = findRow('probeDuration', candidates)
+    const scrapeDurationRow = findRow('scrapeDuration', candidates)
+    const availabilityRow = findRow('availability', candidates)
+    const probeAvailabilityRow = findRow('probeAvailability', candidates)
+
+    const enriched = { ...device }
+
+    // Live status — blackbox probe success wins, scrape target health follows.
+    if (probeRow && Number.isFinite(probeRow.value)) {
+      enriched.status = probeRow.value >= 0.5 ? 'Operational' : 'Down'
+      enriched.telemetrySource = 'prometheus'
+    } else if (upRow && Number.isFinite(upRow.value)) {
+      enriched.status = upRow.value >= 0.5 ? 'Operational' : 'Down'
+      enriched.telemetrySource = 'prometheus'
+    }
+
+    // Live latency — ICMP probe duration preferred, scrape duration fallback.
+    const durationRow = probeDurationRow && Number.isFinite(probeDurationRow.value) ? probeDurationRow : scrapeDurationRow
+    if (durationRow && Number.isFinite(durationRow.value)) {
+      const ms = durationRow.value * 1000
+      enriched.latencyMs = ms >= 1000 ? Math.round(ms) : ms >= 10 ? Math.round(ms * 10) / 10 : Math.round(ms * 100) / 100
+      enriched.latency = formatLatency(ms)
+      enriched.latencySource = durationRow === probeDurationRow ? 'probe_duration_seconds' : 'scrape_duration_seconds'
+    }
+
+    // Live 24h availability — probed-path history for probe targets, scrape
+    // target uptime history otherwise.
+    if (probeRow && probeAvailabilityRow && Number.isFinite(probeAvailabilityRow.value)) {
+      enriched.availability = `${roundTo(probeAvailabilityRow.value * 100, 1)} %`
+      enriched.telemetrySource = 'prometheus'
+    } else if (availabilityRow && Number.isFinite(availabilityRow.value)) {
+      enriched.availability = `${roundTo(availabilityRow.value * 100, 1)} %`
+      enriched.telemetrySource = 'prometheus'
+    }
+
+    return enriched
+  })
+}
+
 // Grafana built-in alertmanager — number of currently firing alerts.
 async function getGrafanaFiringAlerts() {
   try {
@@ -457,10 +592,12 @@ async function getGrafanaSnapshot(force = false) {
       { id: 'dev-17', hostname: 'PROMETHEUS-SERVER', name: 'PROMETHEUS-SERVER', ip: 'localhost:9090', type: 'Server', vendor: 'Prometheus TSDB', model: 'Prometheus v2.45', serial: 'SN-PROM-9090', status: 'Operational', monitoringSource: 'Prometheus Self-Monitor', lastSeen: '2 sec ago', availability: '100 %', healthScore: 100, owner: 'System Administration', warranty: '2028-05-31' },
     ]
 
+    const enrichedDevices = await collectDeviceTelemetry(prometheus.uid, realMonitoredAssets)
+
     const snapshot = {
       dashboard,
       monitoring: {
-        devices: realMonitoredAssets,
+        devices: enrichedDevices,
         healthStatus: grafanaStatus,
         reachability: 'Reachable',
         performanceMetrics: {

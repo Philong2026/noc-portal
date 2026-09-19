@@ -1,7 +1,9 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { Activity, AlertTriangle, Bell, Check, ChevronDown, Cloud, Cpu, Database, Download, FileText, GitBranch, HardDrive, LayoutDashboard, LockKeyhole, LogOut, Menu, Moon, Network, Search, Server, Settings, ShieldCheck, Sun, UserPlus, Users, X, Zap } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import ReactFlow, { Background, Controls, MiniMap, applyNodeChanges } from 'reactflow'
+import 'reactflow/dist/style.css'
 import { api } from './mockApi'
 
 const TOKEN_KEY = 'noc-automation-token'
@@ -357,14 +359,49 @@ function ExecutiveSummaryPanel({ availability, securityScore, activeAlerts }) {
 }
 
 function TopologyMap() {
-  const nodes = [
-    { name: 'Core Switch', role: 'Primary', x: '50%', y: '18%', type: 'core' },
-    { name: 'Firewall', role: 'Security', x: '18%', y: '52%', type: 'firewall' },
-    { name: 'Servers', role: 'Compute', x: '38%', y: '78%', type: 'server' },
-    { name: 'Cloud', role: 'Hybrid', x: '76%', y: '60%', type: 'cloud' },
-  ]
+  const [devices, setDevices] = useState([])
+  const navigate = useNavigate()
 
-  return <section className="dashboard-card topology-panel"><CardHeader eyebrow="Network topology" title="Infrastructure map" /><div className="topology-visual"><svg viewBox="0 0 500 260" className="topology-svg" aria-label="Infrastructure topology map" role="img"><path d="M245 52 L180 125 L126 165" /><path d="M245 52 L245 125 L210 185" /><path d="M245 52 L332 132 L390 158" /><path d="M180 125 L250 180 L332 132" /><path d="M126 165 L210 185 L250 180" /></svg>{nodes.map((node) => <div key={node.name} className={`topology-node ${node.type}`} style={{ left: node.x, top: node.y }}><span className="node-chip"><Network size={12} /></span><div><strong>{node.name}</strong><small>{node.role}</small></div></div>)}</div></section>
+  useEffect(() => {
+    let active = true
+    api.getDevices().then((items) => { if (active) setDevices(Array.isArray(items) ? items : []) })
+    return () => { active = false }
+  }, [])
+
+  // Same derivation as the /topology page — the dashboard widget is never a
+  // placeholder: nodes, links, and layout come from the live inventory.
+  const { nodes, links } = useMemo(() => deriveTopology(devices), [devices])
+  const flow = useMemo(() => toReactFlowGraph({ nodes, links }), [nodes, links])
+  const liveCount = nodes.filter((node) => deviceStatusTone(node.device) !== 'red').length
+
+  return (
+    <section className="dashboard-card topology-panel">
+      <CardHeader eyebrow="Network topology" title="Live infrastructure map" action={{ label: 'Open topology', href: '/topology' }} />
+      <div className="topology-flow topology-flow-widget">
+        <ReactFlow
+          nodes={flow.nodes}
+          edges={flow.edges}
+          nodeTypes={deviceNodeTypes}
+          nodesDraggable={false}
+          zoomOnScroll={false}
+          preventScrolling={false}
+          onNodeClick={() => navigate('/topology')}
+          fitView
+          fitViewOptions={{ padding: 0.12 }}
+          minZoom={0.3}
+          maxZoom={1.8}
+        >
+          <Background color="#7ea4bd" gap={26} size={1.4} />
+          <Controls showInteractive={false} />
+        </ReactFlow>
+      </div>
+      <div className="map-footer" style={{ paddingLeft: '4px' }}>
+        <span><i className="green-dot" />{liveCount}/{nodes.length} live targets</span>
+        <span><i className="amber-dot" />{links.length} derived links</span>
+        <span>Click a node or open the full map</span>
+      </div>
+    </section>
+  )
 }
 
 function MonitoringTable() {
@@ -904,87 +941,272 @@ function SettingsPage() {
 
   return <div className="dashboard"><PageHeader eyebrow="Settings" title={<>Configure your<br /><span>operations layer.</span></>} text="Tune automation, notification, and response policies across the enterprise workspace." action="Save changes" /><section className="dashboard-card settings-panel"><div className="settings-tabs"><button className="active" type="button">Workspace</button><button type="button">Integrations</button><button type="button">Security</button></div><div className="settings-layout"><div className="settings-column"><label className="settings-field"><span>Workspace name</span><input value={workspace} onChange={(event) => setWorkspace(event.target.value)} /></label><label className="settings-field"><span>Timezone</span><select value={timezone} onChange={(event) => setTimezone(event.target.value)}><option>UTC-05:00 (New York)</option><option>UTC-00:00 (London)</option><option>UTC+01:00 (Frankfurt)</option><option>UTC+08:00 (Singapore)</option></select></label><label className="settings-field"><span>Incident retention</span><select value={retention} onChange={(event) => setRetention(event.target.value)}><option>30 days</option><option>60 days</option><option>90 days</option><option>180 days</option></select></label></div><div className="settings-column"><label className="settings-field checkbox-field"><span>Alert notifications</span><input type="checkbox" checked={notifications} onChange={(event) => setNotifications(event.target.checked)} /></label><div className="role-list"><div><span className="role-badge role-0">A</span><span><strong>Admin access</strong><small>Full control of policy, users, and automation.</small></span></div><div><span className="role-badge role-1">O</span><span><strong>Operator access</strong><small>Escalation, monitoring, and response workflows.</small></span></div><div><span className="role-badge role-2">V</span><span><strong>Viewer access</strong><small>Read-only dashboards and incident summaries.</small></span></div></div></div></div></section></div>
 }
+// ---------------------------------------------------------------------------
+// Topology graph derivation — built entirely from the LIVE monitored inventory
+// returned by api.getDevices(). Node tiers come from the device type, links
+// come from shared subnets + tier relationships, and the layout is computed.
+// No per-device data is hardcoded: new/removed/renamed devices in the live
+// inventory automatically appear in the graph.
+// ---------------------------------------------------------------------------
+const TOPOLOGY_VIEW = { width: 520, height: 340, padX: 30, top: 46, rowGap: 78 }
+const TIER_META = [
+  { label: 'Core routing', css: 'core' },
+  { label: 'NOC switching', css: 'firewall' },
+  { label: 'Edge & transit', css: 'cloud' },
+  { label: 'DNS & compute', css: 'server' },
+]
+const deviceStatusTone = (device) => {
+  const status = String((device && device.status) || '').toLowerCase()
+  if (status === 'operational' || status === 'online' || status === 'up') return 'green'
+  if (status === 'down' || status === 'offline' || status === 'unreachable') return 'red'
+  return 'amber'
+}
+const deviceLatencyText = (device) => {
+  if (device && typeof device.latencyMs === 'number' && Number.isFinite(device.latencyMs)) return `${device.latencyMs} ms`
+  return (device && device.latency) || '—'
+}
+
+// ---------------------------------------------------------------------------
+// React Flow adapter — converts deriveTopology() output (UNCHANGED) into
+// React Flow nodes/edges. Node positions reuse the derivation's layered
+// layout (scaled up for pixel-space); edges keep their per-kind styling.
+// ---------------------------------------------------------------------------
+const RF_SCALE = 1.6
+const RF_EDGE_STYLES = {
+  backbone: { stroke: 'rgba(40,216,192,0.85)', strokeWidth: 2.4 },
+  uplink: { stroke: 'rgba(80,185,255,0.6)', strokeWidth: 2, strokeDasharray: '6 3' },
+  edge: { stroke: 'rgba(40,216,192,0.35)', strokeWidth: 1.6, strokeDasharray: '4 2' },
+  service: { stroke: 'rgba(226,168,77,0.5)', strokeWidth: 1.4, strokeDasharray: '2 3' },
+}
+
+function toReactFlowGraph(topology) {
+  const nodes = topology.nodes.map((node) => ({
+    id: node.id,
+    type: 'device',
+    position: { x: node.x * RF_SCALE, y: node.y * RF_SCALE },
+    data: { node, device: node.device },
+  }))
+  const edges = topology.links.map((link) => ({
+    id: `${link.from}-${link.to}`,
+    source: link.from,
+    target: link.to,
+    type: 'straight',
+    style: RF_EDGE_STYLES[link.kind] || RF_EDGE_STYLES.edge,
+  }))
+  return { nodes, edges }
+}
+
+function DeviceNode({ data, selected }) {
+  const tone = deviceStatusTone(data.device)
+  const toneColor = tone === 'green' ? 'var(--green)' : tone === 'red' ? 'var(--red)' : 'var(--amber)'
+  return (
+    <div className={`rf-device tone-${tone}${selected ? ' rf-device-selected' : ''}`} title={`${data.node.label} · ${data.node.ip} · ${data.node.subnet} · ${data.device.status || 'Unknown'}`}>
+      <span className="rf-status-dot" style={{ background: toneColor }} />
+      <div>
+        <strong>{data.node.label}</strong>
+        <small style={{ color: tone === 'red' ? 'var(--red)' : 'var(--teal)' }}>
+          {data.device.status || 'Unknown'} · {deviceLatencyText(data.device)} · {data.device.availability || '—'}
+        </small>
+        <small>{data.node.ip || data.node.subnet}</small>
+      </div>
+    </div>
+  )
+}
+
+const deviceNodeTypes = { device: DeviceNode }
+const minimapNodeColor = (flowNode) => {
+  const tone = flowNode && flowNode.data && flowNode.data.device ? deviceStatusTone(flowNode.data.device) : 'amber'
+  return tone === 'red' ? '#f06868' : tone === 'green' ? '#43be92' : '#e2a84d'
+}
+const deviceTypeLower = (device) => String((device && (device.type || device.device_type)) || '').toLowerCase()
+const deviceIpOf = (device) => String((device && (device.ip || device.ip_address || device.address)) || '').trim()
+const deviceLabelOf = (device) => (device && (device.hostname || device.name || device.ip || device.id)) || 'unknown'
+const subnetKeyOf = (device) => {
+  const octets = deviceIpOf(device).match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/)
+  if (octets) return `${octets[1]}.${octets[2]}.${octets[3]}.0/24`
+  return `${((device && device.vendor) || 'unclassified').toLowerCase()} services`
+}
+const deviceTierOf = (device) => {
+  const type = deviceTypeLower(device)
+  if (type.includes('router')) return 0
+  if (type.includes('switch')) return 1
+  if (type.includes('dns')) return 3
+  if (type.includes('edge') || type.includes('gateway')) return 2
+  return 3
+}
+
+function deriveTopology(devices) {
+  const nodes = (Array.isArray(devices) ? devices : []).map((device) => ({
+    id: String(device.id || deviceLabelOf(device)),
+    device,
+    label: deviceLabelOf(device),
+    ip: deviceIpOf(device),
+    type: device.type || 'Device',
+    tier: deviceTierOf(device),
+    subnet: subnetKeyOf(device),
+    x: 0,
+    y: 0,
+  }))
+  const tierList = (tier) => nodes.filter((node) => node.tier === tier)
+  const routers = tierList(0)
+  const switches = tierList(1)
+  const dnsNodes = nodes.filter((node) => deviceTypeLower(node.device).includes('dns'))
+  const servers = tierList(3).filter((node) => !dnsNodes.includes(node))
+
+  const seen = new Set()
+  const links = []
+  const addLink = (source, target, kind, note) => {
+    if (!source || !target || source.id === target.id) return
+    const pair = [source.id, target.id].sort().join('->')
+    if (seen.has(pair)) return
+    seen.add(pair)
+    links.push({ from: source.id, to: target.id, source, target, kind, note })
+  }
+  const sameSubnet = (a, b) => a.subnet === b.subnet
+
+  // 1) Backbone: full mesh between same-subnet routers (10.24.11.0/24).
+  routers.forEach((router, index) => routers.slice(index + 1).forEach((peer) => {
+    if (sameSubnet(router, peer)) addLink(router, peer, 'backbone', 'Core 10G trunk')
+  }))
+  // 2) Distribution: switches uplink to same-subnet routers + inter-switch trunk.
+  switches.forEach((sw) => routers.filter((router) => sameSubnet(router, sw)).forEach((router) => addLink(sw, router, 'uplink', '10G uplink')))
+  switches.forEach((sw, index) => switches.slice(index + 1).forEach((peer) => {
+    if (sameSubnet(sw, peer)) addLink(sw, peer, 'uplink', 'Switch interconnect')
+  }))
+  // 3) Edge/transit: each edge subnet spreads round-robin over the switch tier
+  //    (routers take over when no switch is monitored).
+  const uplinkParents = switches.length ? switches : routers
+  const edgeGroups = new Map()
+  tierList(2).forEach((edge) => {
+    if (!edgeGroups.has(edge.subnet)) edgeGroups.set(edge.subnet, [])
+    edgeGroups.get(edge.subnet).push(edge)
+  })
+  edgeGroups.forEach((group) => group.forEach((edge, index) => {
+    if (!uplinkParents.length) return
+    addLink(edge, uplinkParents[index % uplinkParents.length], 'edge', 'Transit subnet uplink')
+  }))
+  // 4) Services: DNS probes hang off the routing tier, compute/monitoring
+  //    servers off the switching tier (management plane).
+  dnsNodes.forEach((dns, index) => {
+    const parents = routers.length ? routers : uplinkParents
+    if (parents.length) addLink(dns, parents[index % parents.length], 'service', 'Anycast DNS probe')
+  })
+  servers.forEach((server, index) => {
+    const parents = switches.length ? switches : routers
+    if (parents.length) addLink(server, parents[index % parents.length], 'service', 'Management plane')
+  })
+
+  // Layered layout: one row per populated tier, evenly spread per row.
+  const populatedTiers = [0, 1, 2, 3].filter((tier) => tierList(tier).length)
+  populatedTiers.forEach((tier, rowIndex) => {
+    const row = tierList(tier)
+    const y = populatedTiers.length > 1 ? TOPOLOGY_VIEW.top + rowIndex * TOPOLOGY_VIEW.rowGap : TOPOLOGY_VIEW.height / 2
+    row.forEach((node, index) => {
+      node.x = Math.round(TOPOLOGY_VIEW.padX + ((index + 0.5) * (TOPOLOGY_VIEW.width - TOPOLOGY_VIEW.padX * 2)) / row.length)
+      node.y = y
+    })
+  })
+
+  const subnetGroups = []
+  nodes.forEach((node) => {
+    let group = subnetGroups.find((entry) => entry.subnet === node.subnet)
+    if (!group) {
+      group = { subnet: node.subnet, tiers: [], devices: [] }
+      subnetGroups.push(group)
+    }
+    const tierLabel = TIER_META[node.tier].label
+    if (!group.tiers.includes(tierLabel)) group.tiers.push(tierLabel)
+    group.devices.push(node.label)
+  })
+
+  return { nodes, links, subnetGroups, view: TOPOLOGY_VIEW }
+}
+
+
 function TopologyPage() {
   const [devices, setDevices] = useState([])
   const [selectedDevice, setSelectedDevice] = useState(null)
   const [activeTab, setActiveTab] = useState('All')
+  const [refreshing, setRefreshing] = useState(false)
 
-  useEffect(() => {
-    let active = true
+  const refresh = () => {
+    setRefreshing(true)
     api.getDevices().then((items) => {
-      if (!active) return
       const list = Array.isArray(items) ? items : []
       setDevices(list)
-      if (list.length) setSelectedDevice(list[0])
-    })
-    return () => { active = false }
+      setSelectedDevice((current) => (current && list.find((d) => String(d.id) === String(current.id))) || list[0] || null)
+    }).finally(() => setRefreshing(false))
+  }
+
+  useEffect(() => {
+    refresh()
   }, [])
 
-  const routers = devices.filter((d) => (d.type || '').toLowerCase().includes('router'))
-  const switches = devices.filter((d) => (d.type || '').toLowerCase().includes('switch'))
-  const edgeDevices = devices.filter((d) => {
-    const t = (d.type || '').toLowerCase()
-    return t.includes('edge') || t.includes('dns') || t.includes('gateway')
-  })
+  // Live polling — node status/latency/availability refresh every 30s.
+  useEffect(() => {
+    const interval = setInterval(() => { refresh() }, 30000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // React Flow graph state — node positions come from deriveTopology()'s
+  // layered layout; user drags are remembered so 30s polling doesn't reset
+  // them. deriveTopology() itself is never modified.
+  const draggedPositionsRef = useRef({})
+  const [flowNodes, setFlowNodes] = useState([])
+
+  const { nodes: topologyNodes, links, subnetGroups } = useMemo(() => deriveTopology(devices), [devices])
+
+  const flowEdges = useMemo(
+    () => toReactFlowGraph({ nodes: topologyNodes, links }).edges,
+    [topologyNodes, links],
+  )
+
+  useEffect(() => {
+    const rebuilt = toReactFlowGraph({ nodes: topologyNodes, links }).nodes.map((flowNode) => (
+      draggedPositionsRef.current[flowNode.id]
+        ? { ...flowNode, position: draggedPositionsRef.current[flowNode.id] }
+        : flowNode
+    ))
+    setFlowNodes(rebuilt)
+  }, [topologyNodes, links])
+
+  const onFlowNodesChange = (changes) => {
+    setFlowNodes((current) => {
+      const next = applyNodeChanges(changes, current)
+      changes.forEach((change) => {
+        if (change.type === 'position' && change.position) draggedPositionsRef.current[change.id] = change.position
+      })
+      return next
+    })
+  }
+  const routers = topologyNodes.filter((node) => node.tier === 0)
+  const switches = topologyNodes.filter((node) => node.tier === 1)
+  const edgeDevices = topologyNodes.filter((node) => node.tier === 2)
 
   const filteredDevices = devices.filter((d) => {
     if (activeTab === 'Routers') return (d.type || '').toLowerCase().includes('router')
     if (activeTab === 'Switches') return (d.type || '').toLowerCase().includes('switch')
     if (activeTab === 'Edge') {
       const t = (d.type || '').toLowerCase()
-      return t.includes('edge') || t.includes('dns') || t.includes('gateway')
+      return t.includes('edge') || t.includes('gateway')
     }
     return true
   })
 
-  const topologyNodes = [
-    { id: 'dev-01', x: 250, y: 45, label: 'CORE-ROUTER-01', type: 'Router', ip: '10.24.11.12', status: 'Operational' },
-    { id: 'dev-02', x: 130, y: 55, label: 'ASR-ROUTER-02', type: 'Router', ip: '10.24.11.13', status: 'Operational' },
-    { id: 'dev-03', x: 370, y: 55, label: 'ASR-ROUTER-03', type: 'Router', ip: '10.24.11.14', status: 'Operational' },
-    { id: 'dev-04', x: 190, y: 135, label: 'SWITCH-NOC-SW1', type: 'Switch', ip: '10.24.11.1', status: 'Operational' },
-    { id: 'dev-05', x: 310, y: 135, label: 'SWITCH-NOC-SW2', type: 'Switch', ip: '10.24.11.2', status: 'Operational' },
-    { id: 'dev-06', x: 40, y: 220, label: 'CMC-EDGE-189', type: 'Edge Node', ip: '103.63.123.189', status: 'Operational' },
-    { id: 'dev-07', x: 100, y: 230, label: 'CMC-EDGE-190', type: 'Edge Node', ip: '103.63.123.190', status: 'Operational' },
-    { id: 'dev-08', x: 160, y: 220, label: 'CMC-EDGE-193', type: 'Edge Node', ip: '103.63.123.193', status: 'Operational' },
-    { id: 'dev-09', x: 220, y: 230, label: 'CMC-EDGE-194', type: 'Edge Node', ip: '103.63.123.194', status: 'Operational' },
-    { id: 'dev-10', x: 280, y: 220, label: 'MTT-EDGE-90.1', type: 'Edge Gateway', ip: '112.109.90.1', status: 'Operational' },
-    { id: 'dev-11', x: 340, y: 230, label: 'MTT-EDGE-90.2', type: 'Edge Gateway', ip: '112.109.90.2', status: 'Operational' },
-    { id: 'dev-12', x: 400, y: 220, label: 'MTT-EDGE-90.3', type: 'Edge Gateway', ip: '112.109.90.3', status: 'Operational' },
-    { id: 'dev-13', x: 460, y: 230, label: 'MTT-EDGE-90.4', type: 'Edge Gateway', ip: '112.109.90.4', status: 'Operational' },
-    { id: 'dev-14', x: 70, y: 125, label: 'CLOUDFLARE-DNS', type: 'DNS Gateway', ip: '1.1.1.1', status: 'Operational' },
-    { id: 'dev-15', x: 430, y: 125, label: 'GOOGLE-DNS', type: 'DNS Gateway', ip: '8.8.8.8', status: 'Operational' },
-    { id: 'dev-16', x: 210, y: 290, label: 'TELEGRAF-NODE', type: 'Server', ip: '127.0.0.1:9273', status: 'Operational' },
-    { id: 'dev-17', x: 290, y: 290, label: 'PROMETHEUS', type: 'Server', ip: 'localhost:9090', status: 'Operational' },
-  ]
-
-  const links = [
-    { from: 'dev-01', to: 'dev-02' },
-    { from: 'dev-01', to: 'dev-03' },
-    { from: 'dev-01', to: 'dev-04' },
-    { from: 'dev-01', to: 'dev-05' },
-    { from: 'dev-02', to: 'dev-04' },
-    { from: 'dev-03', to: 'dev-05' },
-    { from: 'dev-02', to: 'dev-14' },
-    { from: 'dev-03', to: 'dev-15' },
-    { from: 'dev-04', to: 'dev-06' },
-    { from: 'dev-04', to: 'dev-07' },
-    { from: 'dev-04', to: 'dev-08' },
-    { from: 'dev-05', to: 'dev-09' },
-    { from: 'dev-05', to: 'dev-10' },
-    { from: 'dev-05', to: 'dev-11' },
-    { from: 'dev-05', to: 'dev-12' },
-    { from: 'dev-05', to: 'dev-13' },
-    { from: 'dev-04', to: 'dev-16' },
-    { from: 'dev-05', to: 'dev-17' },
-  ]
+  const selectedNode = selectedDevice ? topologyNodes.find((node) => node.id === String(selectedDevice.id || selectedDevice.hostname)) : null
+  const neighborNodes = selectedNode
+    ? links
+        .filter((link) => link.from === selectedNode.id || link.to === selectedNode.id)
+        .map((link) => ({ peer: link.from === selectedNode.id ? link.target : link.source, note: link.note }))
+    : []
 
   return (
     <div className="dashboard">
       <PageHeader
         eyebrow="Infrastructure Topology"
         title={<>Network Topology<br /><span>Live Connectivity Map.</span></>}
-        text="Visual mapping of monitored routers, switches, edge nodes, and interconnect links across the NOC estate."
-        action={<button className="outline-button" type="button" onClick={() => window.location.reload()}>Live refresh</button>}
+        text="Derived connectivity map with live status, latency, and availability for every monitored device."
+        action={<button className="outline-button" type="button" onClick={refresh} disabled={refreshing}>{refreshing ? 'Refreshing...' : 'Live refresh'}</button>}
       />
 
       <div className="metric-grid">
@@ -1017,48 +1239,28 @@ function TopologyPage() {
       <div className="dashboard-grid">
         <section className="dashboard-card topology-panel" style={{ gridColumn: 'span 2' }}>
           <CardHeader eyebrow="Interactive Connectivity Map" title="Topology Visualizer" />
-          <div className="topology-visual" style={{ minHeight: '340px', position: 'relative', overflow: 'hidden' }}>
-            <svg viewBox="0 0 500 330" className="topology-svg" aria-label="Monitored Network Topology" role="img">
-              {links.map((link) => {
-                const source = topologyNodes.find((n) => n.id === link.from)
-                const target = topologyNodes.find((n) => n.id === link.to)
-                if (!source || !target) return null
-                return (
-                  <line
-                    key={`${link.from}-${link.to}`}
-                    x1={source.x}
-                    y1={source.y}
-                    x2={target.x}
-                    y2={target.y}
-                    stroke="rgba(40,216,192,0.4)"
-                    strokeWidth="2"
-                    strokeDasharray="4 2"
-                  />
-                )
-              })}
-            </svg>
-
-            {topologyNodes.map((node) => {
-              const matchedDev = devices.find((d) => d.id === node.id) || node
-              const isSelected = selectedDevice && selectedDevice.id === node.id
-              return (
-                <button
-                  type="button"
-                  key={node.id}
-                  className={`topology-node ${node.type.toLowerCase().includes('router') ? 'core' : node.type.toLowerCase().includes('switch') ? 'firewall' : node.type.toLowerCase().includes('server') ? 'server' : 'cloud'} ${isSelected ? 'selected' : ''}`}
-                  style={{ left: `${(node.x / 500) * 100}%`, top: `${(node.y / 330) * 100}%`, position: 'absolute', transform: 'translate(-50%, -50%)', cursor: 'pointer', background: isSelected ? '#153c5a' : undefined }}
-                  onClick={() => setSelectedDevice(matchedDev)}
-                >
-                  <span className="node-chip">
-                    {node.type.includes('Router') ? <GitBranch size={12} /> : node.type.includes('Switch') ? <Network size={12} /> : <Activity size={12} />}
-                  </span>
-                  <div>
-                    <strong>{node.label}</strong>
-                    <small>{node.ip}</small>
-                  </div>
-                </button>
-              )
-            })}
+          <div className="topology-flow">
+            <ReactFlow
+              nodes={flowNodes}
+              edges={flowEdges}
+              nodeTypes={deviceNodeTypes}
+              onNodesChange={onFlowNodesChange}
+              onNodeClick={(event, flowNode) => { const dev = flowNode.data && flowNode.data.device; if (dev) setSelectedDevice(dev) }}
+              fitView
+              fitViewOptions={{ padding: 0.15 }}
+              minZoom={0.3}
+              maxZoom={2.5}
+            >
+              <Background color="#7ea4bd" gap={26} size={1.4} />
+              <Controls showInteractive={false} />
+              <MiniMap pannable zoomable nodeColor={minimapNodeColor} />
+            </ReactFlow>
+          </div>
+          <div className="map-footer" style={{ paddingLeft: '4px' }}>
+            <span><i style={{ width: 18, height: 2, display: 'inline-block', background: 'rgba(40,216,192,0.85)' }} />Backbone</span>
+            <span><i style={{ width: 18, height: 2, display: 'inline-block', background: 'rgba(80,185,255,0.7)' }} />Uplink / interconnect</span>
+            <span><i style={{ width: 18, height: 2, display: 'inline-block', background: 'rgba(40,216,192,0.4)' }} />Edge &amp; transit</span>
+            <span><i style={{ width: 18, height: 2, display: 'inline-block', background: 'rgba(226,168,77,0.6)' }} />DNS &amp; management</span>
           </div>
         </section>
 
@@ -1066,30 +1268,70 @@ function TopologyPage() {
           <aside className="dashboard-card device-detail-panel">
             <CardHeader eyebrow="Node Details" title={selectedDevice.name || selectedDevice.hostname || selectedDevice.id} />
             <div style={{ marginTop: '12px' }}>
-              <span className={`status-pill ${selectedDevice.status === 'Operational' || selectedDevice.status === 'Online' ? 'green' : 'amber'}`}>
-                {selectedDevice.status || 'Operational'}
+              <span className={`status-pill ${deviceStatusTone(selectedDevice)}`}>
+                {selectedDevice.status || 'Unknown'}
               </span>
               <div className="detail-highlight" style={{ marginTop: '12px' }}>
-                <div className="detail-stat"><span>Type</span><strong>{selectedDevice.type}</strong></div>
-                <div className="detail-stat"><span>IP Address</span><strong>{selectedDevice.ip}</strong></div>
-                <div className="detail-stat"><span>Vendor</span><strong>{selectedDevice.vendor || 'Cisco / Edge'}</strong></div>
+                <div className="detail-stat"><span>Type</span><strong>{selectedDevice.type || '—'}</strong></div>
+                <div className="detail-stat"><span>IP Address</span><strong>{selectedDevice.ip || '—'}</strong></div>
+                <div className="detail-stat"><span>Vendor</span><strong>{[selectedDevice.vendor, selectedDevice.model].filter(Boolean).join(' · ') || '—'}</strong></div>
               </div>
 
               <div className="detail-grid" style={{ marginTop: '14px' }}>
-                <div><span>CPU Usage</span><strong>{selectedDevice.cpu ? `${selectedDevice.cpu}%` : '42%'}</strong></div>
-                <div><span>Memory Usage</span><strong>{selectedDevice.ram ? `${selectedDevice.ram}%` : '58%'}</strong></div>
-                <div><span>Latency</span><strong>{selectedDevice.ping ? `${selectedDevice.ping} ms` : '12 ms'}</strong></div>
-                <div><span>Availability</span><strong>{selectedDevice.availability || '100 %'}</strong></div>
+                <div><span>Latency</span><strong>{deviceLatencyText(selectedDevice)}</strong></div>
+                <div><span>Availability</span><strong>{selectedDevice.availability || '—'}</strong></div>
+                <div><span>Status</span><strong>{selectedDevice.status || 'Unknown'}</strong></div>
+                <div><span>Subnet</span><strong>{selectedNode ? selectedNode.subnet : '—'}</strong></div>
+                <div><span>Health Score</span><strong>{selectedDevice.healthScore ? `${selectedDevice.healthScore}%` : '—'}</strong></div>
+                <div><span>Serial</span><strong>{selectedDevice.serial || '—'}</strong></div>
+                <div><span>Owner</span><strong>{selectedDevice.owner || '—'}</strong></div>
+                <div><span>Last Seen</span><strong>{selectedDevice.lastSeen || '—'}</strong></div>
               </div>
 
               <div className="detail-note" style={{ marginTop: '14px' }}>
                 <span className="auth-eyebrow">Monitoring Source</span>
-                <p>{selectedDevice.monitoringSource || 'Prometheus / Grafana Live Target'}</p>
+                <p>{selectedDevice.monitoringSource || '—'}{selectedDevice.latencySource ? ` · live latency via ${selectedDevice.latencySource}` : ''}</p>
+              </div>
+
+              <div className="detail-note" style={{ marginTop: '12px' }}>
+                <span className="auth-eyebrow">Derived links ({neighborNodes.length})</span>
+                {neighborNodes.length ? neighborNodes.map(({ peer, note }) => (
+                  <p key={peer.id} style={{ margin: '6px 0 0' }}>
+                    <strong style={{ fontSize: '11px' }}>{peer.label}</strong>
+                    <small style={{ color: 'var(--muted)', marginLeft: '6px' }}>{note}</small>
+                  </p>
+                )) : <p style={{ margin: '6px 0 0' }}>No links derived for this node.</p>}
               </div>
             </div>
           </aside>
         )}
       </div>
+
+      <section className="dashboard-card monitor-table" style={{ marginTop: '20px' }}>
+        <CardHeader eyebrow="Derived from live inventory" title="Subnet Relationships" />
+        <div className="table-wrap">
+          <table className="audit-table">
+            <thead>
+              <tr>
+                <th>Subnet</th>
+                <th>Functional Tier</th>
+                <th>Monitored Devices</th>
+                <th>Count</th>
+              </tr>
+            </thead>
+            <tbody>
+              {subnetGroups.map((group) => (
+                <tr key={group.subnet}>
+                  <td><strong>{group.subnet}</strong></td>
+                  <td><span className="status-pill cyan">{group.tiers.join(' / ')}</span></td>
+                  <td><small>{group.devices.join(', ')}</small></td>
+                  <td>{group.devices.length}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section className="dashboard-card monitor-table" style={{ marginTop: '20px' }}>
         <CardHeader eyebrow="Inventory by Tier" title="Monitored Devices" />
@@ -1136,4 +1378,5 @@ function TopologyPage() {
 function TeamSection() { return <section className="team-section" id="team"><div className="section-intro"><span className="auth-eyebrow">Your operations team</span><h2>People who keep<br /><span>systems moving.</span></h2></div><div className="team-list"><div><span className="team-avatar teal">JM</span><span><strong>Jordan Miller</strong><small>Infrastructure Lead</small></span><span className="online"><i />Available</span></div><div><span className="team-avatar blue">SK</span><span><strong>Samira Khan</strong><small>Security Operations</small></span><span className="online"><i />Available</span></div><div><span className="team-avatar amber">DR</span><span><strong>Diego Ruiz</strong><small>Automation Architect</small></span><span className="online away"><i />In a meeting</span></div></div></section> }
 function ContactSection() { return <section className="contact-banner" id="contact"><div><span className="auth-eyebrow">Talk to our team</span><h2>Make your next<br /><span>move with confidence.</span></h2><p>Talk to a NOC Automation specialist about network monitoring, cloud operations, security, and your next reliability goal.</p></div><a className="primary-button" href="mailto:operations@nocautomation.com">Contact operations <Zap size={16} /></a></section> }
 
+export { deriveTopology, TopologyPage, TopologyMap }
 export default App
