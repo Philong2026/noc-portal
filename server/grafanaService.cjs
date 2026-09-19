@@ -282,6 +282,11 @@ const DEVICE_TELEMETRY_QUERIES = [
   { key: 'scrapeDuration', expr: 'scrape_duration_seconds' },
   { key: 'availability', expr: 'avg_over_time(up[24h])' },
   { key: 'probeAvailability', expr: 'avg_over_time(probe_success[24h])' },
+  { key: 'cpu', expr: '100 - avg by (instance) (cpu_usage_idle)' },
+  { key: 'memory', expr: '100 - avg by (instance) (mem_available_percent)' },
+  { key: 'inTrafficBps', expr: 'sum by (instance) (irate(ifHCInOctets[2m]) * 8)' },
+  { key: 'outTrafficBps', expr: 'sum by (instance) (irate(ifHCOutOctets[2m]) * 8)' },
+  { key: 'packetLoss', expr: '100 * (1 - avg by (instance) (probe_success))' },
 ]
 
 const normKey = (value) => String(value || '').trim().toLowerCase()
@@ -367,6 +372,11 @@ async function collectDeviceTelemetry(prometheusUid, devices) {
     const scrapeDurationRow = findRow('scrapeDuration', candidates)
     const availabilityRow = findRow('availability', candidates)
     const probeAvailabilityRow = findRow('probeAvailability', candidates)
+    const cpuRow = findRow('cpu', candidates)
+    const memoryRow = findRow('memory', candidates)
+    const inTrafficRow = findRow('inTrafficBps', candidates)
+    const outTrafficRow = findRow('outTrafficBps', candidates)
+    const packetLossRow = findRow('packetLoss', candidates)
 
     const enriched = { ...device }
 
@@ -397,6 +407,12 @@ async function collectDeviceTelemetry(prometheusUid, devices) {
       enriched.availability = `${roundTo(availabilityRow.value * 100, 1)} %`
       enriched.telemetrySource = 'prometheus'
     }
+
+    if (cpuRow && Number.isFinite(cpuRow.value)) enriched.cpu = roundTo(cpuRow.value, 1)
+    if (memoryRow && Number.isFinite(memoryRow.value)) enriched.ram = roundTo(memoryRow.value, 1)
+    if (inTrafficRow && Number.isFinite(inTrafficRow.value)) enriched.inTrafficBps = inTrafficRow.value
+    if (outTrafficRow && Number.isFinite(outTrafficRow.value)) enriched.outTrafficBps = outTrafficRow.value
+    if (packetLossRow && Number.isFinite(packetLossRow.value)) enriched.packetLoss = roundTo(Math.max(0, packetLossRow.value), 3)
 
     return enriched
   })
