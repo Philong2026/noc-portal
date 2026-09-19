@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { Activity, AlertTriangle, Bell, Check, ChevronDown, Cloud, Cpu, Database, Download, FileText, GitBranch, HardDrive, LayoutDashboard, LockKeyhole, LogOut, Menu, Moon, Network, Search, Server, Settings, ShieldCheck, Sun, UserPlus, Users, X, Zap } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import ReactFlow, { Background, Controls, MiniMap, applyNodeChanges } from 'reactflow'
+import ReactFlow, { Background, Controls, Handle, MiniMap, Position, applyNodeChanges } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { api } from './mockApi'
 
@@ -137,7 +137,7 @@ function App() {
 
   return <AuthProvider><Routes>
     <Route path="/login" element={<Login />} /><Route path="/register" element={<Register />} /><Route path="/forgot-password" element={<ForgotPassword />} />
-    <Route element={<ProtectedRoute />}><Route path="/dashboard" element={<Dashboard />} /><Route path="/monitoring" element={<MonitoringPage />} /><Route path="/alerts" element={<AlertsPage />} /><Route path="/assets" element={<AssetsPage />} /><Route path="/reports" element={<ReportsPage />} /><Route path="/audit" element={<AuditLogPage />} /><Route path="/users" element={<UserManagementPage />} /><Route path="/settings" element={<SettingsPage />} /><Route path="/profile" element={<ProfilePage />} /><Route path="/security" element={<SecurityPage />} /></Route>
+    <Route element={<ProtectedRoute />}><Route path="/dashboard" element={<Dashboard />} /><Route path="/monitoring" element={<MonitoringPage />} /><Route path="/topology" element={<TopologyPage />} /><Route path="/alerts" element={<AlertsPage />} /><Route path="/assets" element={<AssetsPage />} /><Route path="/reports" element={<ReportsPage />} /><Route path="/audit" element={<AuditLogPage />} /><Route path="/users" element={<UserManagementPage />} /><Route path="/settings" element={<SettingsPage />} /><Route path="/profile" element={<ProfilePage />} /><Route path="/security" element={<SecurityPage />} /></Route>
     <Route path="*" element={<Navigate to="/dashboard" replace />} />
   </Routes></AuthProvider>
 }
@@ -1001,6 +1001,7 @@ function DeviceNode({ data, selected }) {
   const toneColor = tone === 'green' ? 'var(--green)' : tone === 'red' ? 'var(--red)' : 'var(--amber)'
   return (
     <div className={`rf-device tone-${tone}${selected ? ' rf-device-selected' : ''}`} title={`${data.node.label} · ${data.node.ip} · ${data.node.subnet} · ${data.device.status || 'Unknown'}`}>
+      <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
       <span className="rf-status-dot" style={{ background: toneColor }} />
       <div>
         <strong>{data.node.label}</strong>
@@ -1009,6 +1010,7 @@ function DeviceNode({ data, selected }) {
         </small>
         <small>{data.node.ip || data.node.subnet}</small>
       </div>
+      <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
     </div>
   )
 }
