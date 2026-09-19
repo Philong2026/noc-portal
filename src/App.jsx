@@ -406,7 +406,7 @@ function TopologyMap() {
 
 function MonitoringTable() {
   const rows = [
-    { name: 'Core Edge Router', ip: '10.24.11.12', status: 'Operational', cpu: '42%', memory: '58%', lastCheck: '12 sec ago' },
+    { name: 'CORE-ROUTER-01', ip: '103.122.160.129', status: 'Operational', cpu: '42%', memory: '58%', lastCheck: '12 sec ago' },
     { name: 'Finance DB Cluster', ip: '10.24.19.02', status: 'Warning', cpu: '71%', memory: '76%', lastCheck: '28 sec ago' },
     { name: 'API Gateway', ip: '10.24.17.33', status: 'Operational', cpu: '39%', memory: '52%', lastCheck: '18 sec ago' },
     { name: 'Storage Array', ip: '10.24.24.08', status: 'Degraded', cpu: '66%', memory: '81%', lastCheck: '46 sec ago' },
@@ -1024,6 +1024,7 @@ const deviceTypeLower = (device) => String((device && (device.type || device.dev
 const deviceIpOf = (device) => String((device && (device.ip || device.ip_address || device.address)) || '').trim()
 const deviceLabelOf = (device) => (device && (device.hostname || device.name || device.ip || device.id)) || 'unknown'
 const subnetKeyOf = (device) => {
+  if (device && device.topologySubnet) return device.topologySubnet
   const octets = deviceIpOf(device).match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/)
   if (octets) return `${octets[1]}.${octets[2]}.${octets[3]}.0/24`
   return `${((device && device.vendor) || 'unclassified').toLowerCase()} services`
