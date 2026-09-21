@@ -174,25 +174,49 @@ const FORMATTERS = {
 // Zabbix telemetry — per-device CPU and network interface metrics are NOT in
 // Prometheus; they live in Grafana through the alexanderzobnin-zabbix-datasource.
 // "Top CPU Devices", "Top Network Traffic" and the "Topology Device Details"
-// CPU / In Traffic / Out Traffic / Interface Utilization fields are therefore
-// fed from Zabbix items, e.g. host CORE-ROUTER-01 item "CPU utilization".
+// CPU / Memory / In Traffic / Out Traffic / Interface Utilization fields are
+// all fed from Zabbix items.
 // ---------------------------------------------------------------------------
 const ZABBIX_DATASOURCE_TYPE = 'alexanderzobnin-zabbix-datasource'
-const ZABBIX_DEVICE_HOSTS = Object.freeze([
-  'CORE-ROUTER-01',
-  'ASR-ROUTER-02',
-  'ASR-ROUTER-03',
-])
+// Every monitored network device lives in the "CORE NETWORK" host group.
+// Verified live: an empty group filter returns zero frames, so the group is
+// part of every query.
+const ZABBIX_GROUP = 'CORE NETWORK'
 
-// Item-name filters (strings starting and ending with "/" are regexes, exactly
-// how the alexanderzobnin-zabbix-datasource treats item filter names).
+// Inventory hostname -> live Zabbix host (visible) name. Mapping verified
+// against the live Zabbix backend through the Grafana datasource — the Zabbix
+// host names differ from the portal inventory names:
+//   CORE-ROUTER-01 -> "CORE-ROUTER-01-Viettel Internet"   (item "#7: CPU utilization")
+//   ASR-ROUTER-02  -> "CORE-ROUTER-02 - Viettel IPtx"     (item "#2: CPU utilization")
+//   ASR-ROUTER-03  -> "CORE-ROUTER-03 - CMC IPtx"         (item "#7: CPU utilization")
+//   SWITCH-NOC-SW1/2 -> "CORE-SWITCH-01"                  (item "#19: CPU utilization")
+// "CORE-SWITCH-01" is the Zabbix identity of the Catalyst 9300 switch stack
+// (StackPort1 is monitored) that the inventory lists as the two SWITCH-NOC-SW*
+// members, so both inventory entries are fed from that host.
+const ZABBIX_HOST_MAP = Object.freeze({
+  'CORE-ROUTER-01': 'CORE-ROUTER-01-Viettel Internet',
+  'ASR-ROUTER-02': 'CORE-ROUTER-02 - Viettel IPtx',
+  'ASR-ROUTER-03': 'CORE-ROUTER-03 - CMC IPtx',
+  'SWITCH-NOC-SW1': 'CORE-SWITCH-01',
+  'SWITCH-NOC-SW2': 'CORE-SWITCH-01',
+})
+
+// Item-name filters in regex form ("/…/" — exactly how the datasource treats
+// slash-wrapped item filters). Verified live against the real item names:
+// CPU items are named "#7: CPU utilization" / "#2: CPU utilization" /
+// "#19: CPU utilization", memory is "Processor: Memory utilization", and the
+// per-interface items are "Interface <port>(<description>): Bits received",
+// ": Bits sent" and ": Speed" (some hosts omit the space after the colon).
+// Speed and memory items carry no "component" tag, so item tags are NOT used.
 const ZABBIX_ITEM_FILTERS = Object.freeze({
-  cpu: ['CPU utilization'],
-  memory: ['Memory utilization'],
-  bitsReceived: ['/Interface .*Bits received/'],
-  bitsSent: ['/Interface .*Bits sent/'],
-  speed: ['/Interface .*Speed/'],
-  interfaceUtilization: ['/Interface .*Utilization/'],
+  cpu: ['/CPU utilization/'],
+  // "Processor: Memory utilization" is the real host memory item. Routers
+  // 02/03 also expose "lsmpi_io: Memory utilization" (~100 %, the packet-IO
+  // buffer pool), which must not be mistaken for host memory utilization.
+  memory: ['/Processor: Memory utilization/'],
+  bitsReceived: ['/Interface .*: ?Bits received/'],
+  bitsSent: ['/Interface .*: ?Bits sent/'],
+  speed: ['/Interface .*: ?Speed/'],
 })
 
 function findZabbixDatasource(datasourceItems) {
@@ -210,25 +234,38 @@ function unionItemFilter(filters) {
 
 function zabbixQuery(zabbixUid, host, itemNameFilters, options = {}) {
   const datasource = { type: ZABBIX_DATASOURCE_TYPE, uid: zabbixUid }
-  // alexanderzobnin-zabbix-datasource backend contract (pkg/datasource/models.go):
-  // queryType "0" = MODE_METRICS; filters are objects with a `filter` string;
-  // strings wrapped in slashes ("/re/") are treated as regex item filters.
+  // alexanderzobnin-zabbix-datasource backend contract, verified live:
+  // queryType "0" = MODE_METRICS; every filter is an object with a `filter`
+  // string; strings wrapped in slashes ("/re/") are regex item filters; the
+  // group filter MUST be non-empty (empty group returns zero frames); the host
+  // filter is the Zabbix visible host name. The query body mirrors the targets
+  // the estate dashboards already send successfully.
   return queryDatasource(datasource, [{
     refId: 'A',
     datasource,
     queryType: '0',
-    group: { filter: '' },
+    group: { filter: ZABBIX_GROUP },
     host: { filter: host },
     application: { filter: '' },
-    itemTag: { filter: '' },
+    itemTag: { filter: options.itemTag || '' },
     item: { filter: unionItemFilter(itemNameFilters) },
     itemids: '',
     functions: [],
+    evaltype: '0',
+    proxy: { filter: '' },
+    macro: { filter: '' },
+    textFilter: '',
+    trigger: { filter: '' },
+    tags: { filter: '' },
+    resultFormat: 'time_series',
+    schema: 12,
     options: {
+      count: false,
       showDisabledItems: false,
       disableDataAlignment: false,
+      skipEmptyValues: false,
       useZabbixValueMapping: false,
-      useTrends: 'false',
+      useTrends: 'default',
     },
   }], {
     from: options.from || 'now-15m',
@@ -237,24 +274,133 @@ function zabbixQuery(zabbixUid, host, itemNameFilters, options = {}) {
   })
 }
 
-// Latest value of every matching Zabbix item frame — summed across interfaces
-// when a host exposes multiple per-interface items for the same metric.
-function zabbixInstantSum(response, refId) {
-  let total = 0
-  let found = false
-  for (const frame of resultFrames(response, refId)) {
-    const values = frame && frame.data && Array.isArray(frame.data.values) ? frame.data.values : []
-    const numeric = values.length > 1 ? values[1] : []
-    for (let i = numeric.length - 1; i >= 0; i -= 1) {
-      const value = Number(numeric[i])
-      if (Number.isFinite(value)) {
-        total += value
-        found = true
-        break
-      }
+// Physical interface port parsed from a Zabbix item name such as
+// "Interface Te1/1/2(CONNECT TO CORE-ROUTER-02 | Te0/2/0): Bits received".
+// Subinterfaces (Te0/2/0.1201), VLANs (Vl99, VLAN-1203) and virtual ports
+// (Vo0, Cr0/0/6, Nu0, StackPort1) return null so their traffic is excluded:
+// a subinterface carries the same octets as its physical parent, so summing
+// both would double-count host throughput and skew interface utilization.
+function physicalInterfacePort(itemName) {
+  const match = /^Interface\s+([A-Za-z]+\d+(?:\/\d+)*)\s*\(/.exec(String(itemName || ''))
+  if (!match) return null
+  const port = match[1]
+  if (/^(Vl|VLAN|Vo|Cr|Nu|Stack)/.test(port)) return null
+  return port
+}
+
+function zabbixInventoryHostnames(zabbixHost) {
+  return Object.keys(ZABBIX_HOST_MAP).filter((hostname) => ZABBIX_HOST_MAP[hostname] === zabbixHost)
+}
+
+// Aggregates the labelled frames (labels.host + labels.item) of the group-wide
+// Zabbix queries into per-inventory-hostname metrics:
+//   cpu / ram                  -> latest utilization item value (percent)
+//   inTrafficBps / outTrafficBps -> sum over physical interface Bits items
+//   interfaceUtilization       -> busiest physical port (in+out)/speed, capped
+//                                 at 100 %, with an aggregate-capacity fallback
+function buildZabbixHostMetrics(rowsByMetric) {
+  const stateByHost = new Map()
+  const hostState = (host) => {
+    if (!stateByHost.has(host)) {
+      stateByHost.set(host, { cpu: [], ram: [], inByPort: new Map(), outByPort: new Map(), speedByPort: new Map() })
     }
+    return stateByHost.get(host)
   }
-  return found ? total : null
+
+  ;(rowsByMetric.cpu || []).forEach((row) => { hostState(row.labels.host).cpu.push(row.value) })
+  ;(rowsByMetric.ram || []).forEach((row) => { hostState(row.labels.host).ram.push(row.value) })
+  ;(rowsByMetric.bitsReceived || []).forEach((row) => {
+    const port = physicalInterfacePort(row.labels.item)
+    if (port) hostState(row.labels.host).inByPort.set(port, (hostState(row.labels.host).inByPort.get(port) || 0) + row.value)
+  })
+  ;(rowsByMetric.bitsSent || []).forEach((row) => {
+    const port = physicalInterfacePort(row.labels.item)
+    if (port) hostState(row.labels.host).outByPort.set(port, (hostState(row.labels.host).outByPort.get(port) || 0) + row.value)
+  })
+  ;(rowsByMetric.speed || []).forEach((row) => {
+    const port = physicalInterfacePort(row.labels.item)
+    if (port) hostState(row.labels.host).speedByPort.set(port, row.value)
+  })
+
+  const metricsByHostname = {}
+  for (const [zabbixHost, state] of stateByHost) {
+    const cpu = state.cpu.length ? Math.max.apply(null, state.cpu) : null
+    const ram = state.ram.length ? Math.max.apply(null, state.ram) : null
+
+    let inTrafficBps = 0
+    state.inByPort.forEach((value) => { inTrafficBps += value })
+    let outTrafficBps = 0
+    state.outByPort.forEach((value) => { outTrafficBps += value })
+
+    // Busiest physical interface utilization — traffic through the port
+    // against that port's monitored speed.
+    let interfaceUtilization = null
+    const perPortUtilization = []
+    state.speedByPort.forEach((speedBps, port) => {
+      if (!(speedBps > 0)) return
+      const portBps = (state.inByPort.get(port) || 0) + (state.outByPort.get(port) || 0)
+      if (portBps <= 0) return
+      perPortUtilization.push(Math.min(100, 100 * portBps / speedBps))
+    })
+    if (perPortUtilization.length) {
+      interfaceUtilization = Math.max.apply(null, perPortUtilization)
+    } else {
+      // Fallback: total physical traffic vs total physical capacity.
+      let totalSpeedBps = 0
+      state.speedByPort.forEach((speedBps) => { if (speedBps > 0) totalSpeedBps += speedBps })
+      const totalBps = inTrafficBps + outTrafficBps
+      if (totalSpeedBps > 0 && totalBps > 0) interfaceUtilization = Math.min(100, 100 * totalBps / totalSpeedBps)
+    }
+
+    const metrics = {
+      cpu: cpu === null ? null : roundTo(cpu, 1),
+      ram: ram === null ? null : roundTo(ram, 1),
+      inTrafficBps: inTrafficBps > 0 || state.inByPort.size ? inTrafficBps : null,
+      outTrafficBps: outTrafficBps > 0 || state.outByPort.size ? outTrafficBps : null,
+      interfaceUtilization: interfaceUtilization === null ? null : roundTo(interfaceUtilization, 1),
+      zabbixHost,
+    }
+    zabbixInventoryHostnames(zabbixHost).forEach((hostname) => {
+      metricsByHostname[hostname] = metrics
+    })
+  }
+  return metricsByHostname
+}
+
+// One group-wide query per metric family; every returned frame is labeled with
+// its Zabbix host + item, so five datasource calls cover the whole monitored
+// estate (three routers + the switch stack). Returns the metrics keyed by
+// inventory hostname plus the raw CPU rows for the dashboard CPU tile.
+async function fetchZabbixDeviceTelemetry(zabbixUid) {
+  const datasource = { type: ZABBIX_DATASOURCE_TYPE, uid: zabbixUid }
+  const definitions = [
+    { key: 'cpu', items: ZABBIX_ITEM_FILTERS.cpu },
+    { key: 'ram', items: ZABBIX_ITEM_FILTERS.memory },
+    { key: 'bitsReceived', items: ZABBIX_ITEM_FILTERS.bitsReceived },
+    { key: 'bitsSent', items: ZABBIX_ITEM_FILTERS.bitsSent },
+    // Interface speed items only report when the speed changes, so a short
+    // window misses them (verified live: 15m returns the switch only, 1h
+    // returns every monitored host).
+    { key: 'speed', items: ZABBIX_ITEM_FILTERS.speed, from: 'now-1h' },
+  ]
+  const outcomes = await Promise.allSettled(definitions.map((definition) =>
+    zabbixQuery(zabbixUid, '/.*/', definition.items, { from: definition.from })))
+  const rowsByMetric = {}
+  definitions.forEach((definition, index) => {
+    const outcome = outcomes[index]
+    const rows = outcome.status === 'fulfilled' ? extractLabelledSeries(outcome.value, 'A') : []
+    rowsByMetric[definition.key] = rows
+    logMetricMapping(`Zabbix ${definition.key} frames`, {
+      items: definition.items,
+      frames: rows.length,
+      hosts: Array.from(new Set(rows.map((row) => row.labels.host))),
+      error: outcome.status === 'rejected' ? outcome.reason.message : undefined,
+    })
+  })
+  return {
+    byHost: buildZabbixHostMetrics(rowsByMetric),
+    cpuRows: rowsByMetric.cpu || [],
+  }
 }
 
 // Time-aligned sum of all matching item frames (per-interface traffic history).
@@ -279,71 +425,22 @@ function zabbixSeriesSum(response, refId, maxPoints = HISTORY_MAX_POINTS) {
   return points.filter((_, index) => index % step === 0 || index === points.length - 1)
 }
 
-// Per-host Zabbix metrics: CPU / memory utilization plus aggregate interface
-// rates. Interface utilization prefers the explicit Zabbix item and otherwise
-// derives from aggregate interface rate versus aggregate interface speed.
-async function resolveZabbixHostMetrics(zabbixUid, host) {
-  const definitions = [
-    { key: 'cpu', items: ZABBIX_ITEM_FILTERS.cpu },
-    { key: 'ram', items: ZABBIX_ITEM_FILTERS.memory },
-    { key: 'inTrafficBps', items: ZABBIX_ITEM_FILTERS.bitsReceived },
-    { key: 'outTrafficBps', items: ZABBIX_ITEM_FILTERS.bitsSent },
-    { key: 'speedMbps', items: ZABBIX_ITEM_FILTERS.speed },
-    { key: 'interfaceUtilizationItem', items: ZABBIX_ITEM_FILTERS.interfaceUtilization },
-  ]
-
-  const outcomes = await Promise.allSettled(definitions.map((definition) =>
-    zabbixQuery(zabbixUid, host, definition.items)))
-  const metrics = {}
-  definitions.forEach((definition, index) => {
-    const outcome = outcomes[index]
-    const value = outcome.status === 'fulfilled' ? zabbixInstantSum(outcome.value, 'A') : null
-    metrics[definition.key] = value
-    logMetricMapping(`Zabbix ${host} ${definition.key}`, {
-      items: definition.items,
-      value,
-      error: outcome.status === 'rejected' ? outcome.reason.message : undefined,
-    })
-  })
-
-  let interfaceUtilization = metrics.interfaceUtilizationItem
-  if (!Number.isFinite(interfaceUtilization)) {
-    const totalBps = (Number.isFinite(metrics.inTrafficBps) ? metrics.inTrafficBps : 0)
-      + (Number.isFinite(metrics.outTrafficBps) ? metrics.outTrafficBps : 0)
-    const totalSpeedBps = Number.isFinite(metrics.speedMbps) ? metrics.speedMbps * 1000000 : 0
-    if (totalSpeedBps > 0 && (Number.isFinite(metrics.inTrafficBps) || Number.isFinite(metrics.outTrafficBps))) {
-      interfaceUtilization = roundTo(Math.min(100, 100 * totalBps / totalSpeedBps), 1)
-    }
-  }
-
-  return {
-    cpu: Number.isFinite(metrics.cpu) ? roundTo(metrics.cpu, 1) : null,
-    ram: Number.isFinite(metrics.ram) ? roundTo(metrics.ram, 1) : null,
-    inTrafficBps: Number.isFinite(metrics.inTrafficBps) ? metrics.inTrafficBps : null,
-    outTrafficBps: Number.isFinite(metrics.outTrafficBps) ? metrics.outTrafficBps : null,
-    interfaceUtilization: Number.isFinite(interfaceUtilization) ? roundTo(interfaceUtilization, 1) : null,
-  }
-}
-
 // Dashboard "CPU Usage" tile — estate CPU now resolves from the Zabbix hosts
 // (alexanderzobnin-zabbix-datasource) instead of Prometheus, matching the
-// router-level metric source. Average of "CPU utilization" across routers.
-async function resolveZabbixDashboardCpu(zabbixUid) {
-  const datasource = { type: ZABBIX_DATASOURCE_TYPE, uid: zabbixUid }
-  const instantOutcomes = await Promise.allSettled(ZABBIX_DEVICE_HOSTS.map((host) =>
-    zabbixQuery(zabbixUid, host, ZABBIX_ITEM_FILTERS.cpu)))
-  const instantValues = instantOutcomes
-    .map((outcome, index) => {
-      const value = outcome.status === 'fulfilled' ? zabbixInstantSum(outcome.value, 'A') : null
-      logMetricMapping(`Zabbix ${ZABBIX_DEVICE_HOSTS[index]} cpu`, {
-        items: ZABBIX_ITEM_FILTERS.cpu,
-        value,
-        error: outcome.status === 'rejected' ? outcome.reason.message : undefined,
-      })
-      return value
-    })
-    .filter((value) => Number.isFinite(value))
+// router-level metric source. Average of the live "CPU utilization" items
+// across the three Zabbix router hosts (the CPU_CORE_ROUTER01_02_03 panel).
+const DASHBOARD_CPU_ZABBIX_HOSTS = Object.freeze(
+  ['CORE-ROUTER-01', 'ASR-ROUTER-02', 'ASR-ROUTER-03'].map((hostname) => ZABBIX_HOST_MAP[hostname]),
+)
 
+async function resolveZabbixDashboardCpu(zabbixUid, telemetry) {
+  const datasource = { type: ZABBIX_DATASOURCE_TYPE, uid: zabbixUid }
+  // Live values come from the same group-wide CPU query the per-device
+  // telemetry uses — no extra datasource round-trip.
+  const instantValues = (telemetry ? telemetry.cpuRows : [])
+    .filter((row) => DASHBOARD_CPU_ZABBIX_HOSTS.includes(row.labels.host))
+    .map((row) => row.value)
+    .filter((value) => Number.isFinite(value))
   if (!instantValues.length) {
     logMetricMapping('CPU Usage', { source: 'zabbix', error: 'No Zabbix CPU utilization items returned data' })
     return { ...UNAVAILABLE_METRIC, datasource }
@@ -353,7 +450,7 @@ async function resolveZabbixDashboardCpu(zabbixUid) {
 
   let series = []
   try {
-    const historyOutcomes = await Promise.allSettled(ZABBIX_DEVICE_HOSTS.map((host) =>
+    const historyOutcomes = await Promise.allSettled(DASHBOARD_CPU_ZABBIX_HOSTS.map((host) =>
       zabbixQuery(zabbixUid, host, ZABBIX_ITEM_FILTERS.cpu, { from: HISTORY_WINDOW, maxDataPoints: HISTORY_MAX_POINTS * 4 })))
     const perHost = historyOutcomes
       .map((outcome) => (outcome.status === 'fulfilled' ? zabbixSeriesSum(outcome.value, 'A', HISTORY_MAX_POINTS * 4) : []))
@@ -381,7 +478,7 @@ async function resolveZabbixDashboardCpu(zabbixUid) {
   return {
     value,
     formatted: FORMATTERS.percent(value),
-    expr: 'avg(item["CPU utilization"]) across Zabbix hosts: CORE-ROUTER-01, ASR-ROUTER-02, ASR-ROUTER-03',
+    expr: 'avg(zabbix["CPU utilization"]) across Zabbix hosts: CORE-ROUTER-01-Viettel Internet, CORE-ROUTER-02 - Viettel IPtx, CORE-ROUTER-03 - CMC IPtx',
     series,
     datasource,
     relatedPanel: METRIC_QUERIES.cpu.relatedPanel,
@@ -591,7 +688,7 @@ function formatLatency(ms) {
   return `${value} ms`
 }
 
-async function collectDeviceTelemetry(prometheusUid, devices, zabbixUid = null) {
+async function collectDeviceTelemetry(prometheusUid, devices, zabbixTelemetry = null) {
   const list = Array.isArray(devices) ? devices : []
   if (!list.length) return list
   const datasource = { type: 'prometheus', uid: prometheusUid }
@@ -615,22 +712,21 @@ async function collectDeviceTelemetry(prometheusUid, devices, zabbixUid = null) 
 
     // CPU + network interface metrics from the Grafana Zabbix datasource.
     // These items do not exist in Prometheus, so the Zabbix values are the
-    // single source of truth for the CPU / traffic / utilization fields.
-    let zabbix = null
-    if (zabbixUid && ZABBIX_DEVICE_HOSTS.includes(hostname)) {
-      try {
-        zabbix = await resolveZabbixHostMetrics(zabbixUid, hostname)
-      } catch (error) {
-        logMetricMapping(`Zabbix ${hostname} host metrics`, { error: error.message })
-      }
-    }
+    // single source of truth for the CPU / memory / traffic / utilization
+    // fields of the routers and switches.
+    const zabbix = zabbixTelemetry ? zabbixTelemetry.byHost[hostname] || null : null
     if (zabbix) {
       for (const key of ['cpu', 'ram', 'inTrafficBps', 'outTrafficBps', 'interfaceUtilization']) {
         if (Number.isFinite(zabbix[key])) telemetry[key] = zabbix[key]
       }
     }
 
-    const enriched = { ...device, telemetrySource: zabbix ? 'zabbix' : 'prometheus', telemetryIp: ip, ...(zabbix ? { telemetryDatasource: 'alexanderzobnin-zabbix-datasource' } : null) }
+    const enriched = {
+      ...device,
+      telemetrySource: zabbix ? 'zabbix' : 'prometheus',
+      telemetryIp: ip,
+      ...(zabbix ? { telemetryDatasource: 'alexanderzobnin-zabbix-datasource', zabbixHost: zabbix.zabbixHost } : null),
+    }
 
     // Live status — blackbox probe success wins, scrape target health follows.
     if (Number.isFinite(telemetry.probeSuccess)) {
@@ -759,8 +855,12 @@ async function getGrafanaSnapshot(force = false) {
     })
 
     const metricKeys = Object.keys(METRIC_QUERIES)
+    // Zabbix telemetry is fetched once per snapshot: five group-wide queries
+    // cover every monitored router and switch, and the same CPU rows feed the
+    // dashboard "CPU Usage" tile.
+    const zabbixTelemetry = zabbixDatasource ? await fetchZabbixDeviceTelemetry(zabbixDatasource.uid) : null
     const outcomes = await Promise.allSettled(metricKeys.map((key) => {
-      if (key === 'cpu' && zabbixDatasource) return resolveZabbixDashboardCpu(zabbixDatasource.uid)
+      if (key === 'cpu' && zabbixDatasource) return resolveZabbixDashboardCpu(zabbixDatasource.uid, zabbixTelemetry)
       return resolveMetric(prometheus.uid, key, METRIC_QUERIES[key])
     }))
     const metrics = {}
@@ -850,8 +950,8 @@ async function getGrafanaSnapshot(force = false) {
       { id: 'dev-01', hostname: 'CORE-ROUTER-01', name: 'CORE-ROUTER-01', ip: '103.122.160.129', topologySubnet: '10.24.11.0/24', type: 'Router', vendor: 'Cisco Systems', model: 'ASR-1002-X', serial: 'SN-ASR1002-01', status: 'Operational', monitoringSource: 'Prometheus / Zabbix', lastSeen: '12 sec ago', availability: '100 %', healthScore: 98, owner: 'Infrastructure Team', warranty: '2028-12-31' },
       { id: 'dev-02', hostname: 'ASR-ROUTER-02', name: 'ASR-ROUTER-02', ip: '103.122.160.120', topologySubnet: '10.24.11.0/24', type: 'Router', vendor: 'Cisco Systems', model: 'ASR-1001-X', serial: 'SN-ASR1001-02', status: 'Operational', monitoringSource: 'Prometheus / Zabbix', lastSeen: '15 sec ago', availability: '100 %', healthScore: 96, owner: 'Infrastructure Team', warranty: '2027-09-30' },
       { id: 'dev-03', hostname: 'ASR-ROUTER-03', name: 'ASR-ROUTER-03', ip: '103.122.160.119', topologySubnet: '10.24.11.0/24', type: 'Router', vendor: 'Cisco Systems', model: 'ASR-1001-X', serial: 'SN-ASR1001-03', status: 'Operational', monitoringSource: 'Prometheus / Zabbix', lastSeen: '18 sec ago', availability: '100 %', healthScore: 97, owner: 'Infrastructure Team', warranty: '2027-09-30' },
-      { id: 'dev-04', hostname: 'SWITCH-NOC-SW1', name: 'SWITCH-NOC-SW1', ip: '171.244.204.90', topologySubnet: '10.24.11.0/24', type: 'Switch', vendor: 'Cisco Systems', model: 'Catalyst 9300', serial: 'SN-CAT9300-01', status: 'Operational', monitoringSource: 'Prometheus SNMP', lastSeen: '8 sec ago', availability: '100 %', healthScore: 99, owner: 'NOC Operations', warranty: '2029-06-30' },
-      { id: 'dev-05', hostname: 'SWITCH-NOC-SW2', name: 'SWITCH-NOC-SW2', ip: '171.244.204.91', topologySubnet: '10.24.11.0/24', type: 'Switch', vendor: 'Cisco Systems', model: 'Catalyst 9300', serial: 'SN-CAT9300-02', status: 'Operational', monitoringSource: 'Prometheus SNMP', lastSeen: '10 sec ago', availability: '100 %', healthScore: 98, owner: 'NOC Operations', warranty: '2029-06-30' },
+      { id: 'dev-04', hostname: 'SWITCH-NOC-SW1', name: 'SWITCH-NOC-SW1', ip: '171.244.204.90', topologySubnet: '10.24.11.0/24', type: 'Switch', vendor: 'Cisco Systems', model: 'Catalyst 9300', serial: 'SN-CAT9300-01', status: 'Operational', monitoringSource: 'Prometheus / Zabbix', lastSeen: '8 sec ago', availability: '100 %', healthScore: 99, owner: 'NOC Operations', warranty: '2029-06-30' },
+      { id: 'dev-05', hostname: 'SWITCH-NOC-SW2', name: 'SWITCH-NOC-SW2', ip: '171.244.204.91', topologySubnet: '10.24.11.0/24', type: 'Switch', vendor: 'Cisco Systems', model: 'Catalyst 9300', serial: 'SN-CAT9300-02', status: 'Operational', monitoringSource: 'Prometheus / Zabbix', lastSeen: '10 sec ago', availability: '100 %', healthScore: 98, owner: 'NOC Operations', warranty: '2029-06-30' },
       { id: 'dev-06', hostname: 'CMC-EDGE-189', name: 'CMC-EDGE-189', ip: '103.63.123.189', type: 'Edge Node', vendor: 'CMC Telecom', model: 'BGP Edge GW', serial: 'SN-CMC-189', status: 'Operational', monitoringSource: 'Prometheus ICMP', lastSeen: '14 sec ago', availability: '100 %', healthScore: 95, owner: 'Network Engineering', warranty: '2026-12-31' },
       { id: 'dev-07', hostname: 'CMC-EDGE-190', name: 'CMC-EDGE-190', ip: '103.63.123.190', type: 'Edge Node', vendor: 'CMC Telecom', model: 'BGP Edge GW', serial: 'SN-CMC-190', status: 'Operational', monitoringSource: 'Prometheus ICMP', lastSeen: '14 sec ago', availability: '100 %', healthScore: 95, owner: 'Network Engineering', warranty: '2026-12-31' },
       { id: 'dev-08', hostname: 'CMC-EDGE-193', name: 'CMC-EDGE-193', ip: '103.63.123.193', type: 'Edge Node', vendor: 'CMC Telecom', model: 'BGP Edge GW', serial: 'SN-CMC-193', status: 'Operational', monitoringSource: 'Prometheus ICMP', lastSeen: '14 sec ago', availability: '100 %', healthScore: 95, owner: 'Network Engineering', warranty: '2026-12-31' },
@@ -866,7 +966,7 @@ async function getGrafanaSnapshot(force = false) {
       { id: 'dev-17', hostname: 'PROMETHEUS-SERVER', name: 'PROMETHEUS-SERVER', ip: 'localhost:9090', type: 'Server', vendor: 'Prometheus TSDB', model: 'Prometheus v2.45', serial: 'SN-PROM-9090', status: 'Operational', monitoringSource: 'Prometheus Self-Monitor', lastSeen: '2 sec ago', availability: '100 %', healthScore: 100, owner: 'System Administration', warranty: '2028-05-31' },
     ]
 
-    const enrichedDevices = await collectDeviceTelemetry(prometheus.uid, realMonitoredAssets, zabbixDatasource ? zabbixDatasource.uid : null)
+    const enrichedDevices = await collectDeviceTelemetry(prometheus.uid, realMonitoredAssets, zabbixTelemetry)
 
     const snapshot = {
       dashboard,

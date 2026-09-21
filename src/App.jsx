@@ -364,9 +364,12 @@ function ExecutiveSummaryPanel({ availability, securityScore, activeAlerts }) {
 
 const FEATURED_NETWORK_DEVICES = ["CORE-ROUTER-01", "ASR-ROUTER-02", "ASR-ROUTER-03", "SWITCH-NOC-SW1", "SWITCH-NOC-SW2"]
 const asLiveNumber = (value) => { const parsed = Number.parseFloat(value); return Number.isFinite(parsed) ? parsed : null }
-const METRIC_NOT_COLLECTED = 'Metric Not Collected'
-const formatPercentMetric = (value) => { const numeric = asLiveNumber(value); return numeric === null ? METRIC_NOT_COLLECTED : `${numeric.toFixed(1)}%` }
-const formatTrafficRate = (value) => { const bps = asLiveNumber(value); if (bps === null) return METRIC_NOT_COLLECTED; if (bps >= 1e9) return `${(bps / 1e9).toFixed(2)} Gbps`; if (bps >= 1e6) return `${(bps / 1e6).toFixed(1)} Mbps`; if (bps >= 1e3) return `${(bps / 1e3).toFixed(1)} Kbps`; return `${bps.toFixed(0)} bps` }
+// Routers and switches are fed live from Zabbix (alexanderzobnin-zabbix-datasource),
+// so these sections always carry real values; an absent metric renders as an
+// em dash instead of a "Metric Not Collected" placeholder.
+const METRIC_ABSENT = '—'
+const formatPercentMetric = (value) => { const numeric = asLiveNumber(value); return numeric === null ? METRIC_ABSENT : `${numeric.toFixed(1)}%` }
+const formatTrafficRate = (value) => { const bps = asLiveNumber(value); if (bps === null) return METRIC_ABSENT; if (bps >= 1e9) return `${(bps / 1e9).toFixed(2)} Gbps`; if (bps >= 1e6) return `${(bps / 1e6).toFixed(1)} Mbps`; if (bps >= 1e3) return `${(bps / 1e3).toFixed(1)} Kbps`; return `${bps.toFixed(0)} bps` }
 const totalTraffic = (device) => {
   const inbound = asLiveNumber(device?.inTrafficBps)
   const outbound = asLiveNumber(device?.outTrafficBps)
