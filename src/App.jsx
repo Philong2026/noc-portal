@@ -362,7 +362,6 @@ function ExecutiveSummaryPanel({ availability, securityScore, activeAlerts }) {
   return <section className="dashboard-card executive-summary-panel"><CardHeader eyebrow="Executive summary" title="Business impact" /><div className="summary-capsule"><div><strong>{availability || '—'}</strong><span>Service coverage</span></div><span className="health-badge">Healthy</span></div><div className="executive-list">{summaryItems.map((item) => <div className="executive-stat" key={item.label}><span>{item.label}</span><strong className={item.tone}>{item.value}</strong></div>)}</div><div className="executive-note"><ShieldCheck size={15} /><p>Incident backlog is down 18% this week and customer-facing latency remains within SLA thresholds.</p></div></section>
 }
 
-const FEATURED_NETWORK_DEVICES = ["CORE-ROUTER-01", "ASR-ROUTER-02", "ASR-ROUTER-03", "SWITCH-NOC-SW1", "SWITCH-NOC-SW2"]
 const asLiveNumber = (value) => { const parsed = Number.parseFloat(value); return Number.isFinite(parsed) ? parsed : null }
 // Routers and switches are fed live from Zabbix (alexanderzobnin-zabbix-datasource),
 // so these sections always carry real values; an absent metric renders as an
@@ -370,20 +369,60 @@ const asLiveNumber = (value) => { const parsed = Number.parseFloat(value); retur
 const METRIC_ABSENT = '—'
 const formatPercentMetric = (value) => { const numeric = asLiveNumber(value); return numeric === null ? METRIC_ABSENT : `${numeric.toFixed(1)}%` }
 const formatTrafficRate = (value) => { const bps = asLiveNumber(value); if (bps === null) return METRIC_ABSENT; if (bps >= 1e9) return `${(bps / 1e9).toFixed(2)} Gbps`; if (bps >= 1e6) return `${(bps / 1e6).toFixed(1)} Mbps`; if (bps >= 1e3) return `${(bps / 1e3).toFixed(1)} Kbps`; return `${bps.toFixed(0)} bps` }
-const totalTraffic = (device) => {
-  const inbound = asLiveNumber(device?.inTrafficBps)
-  const outbound = asLiveNumber(device?.outTrafficBps)
-  return inbound === null && outbound === null ? null : (inbound || 0) + (outbound || 0)
-}
 
+// Top CPU Devices / Top Network Traffic bind directly to the per-device
+// leaderboards the backend now serves inside the /api/dashboard payload
+// (topCpuDevices: { hostname, ip, cpu }, topNetworkDevices:
+// { hostname, ip, trafficIn, trafficOut }) — no client-side re-sorting.
 function DeviceTelemetryLeaders() {
-  const [devices, setDevices] = useState([])
-  useEffect(() => { let active = true; api.getDevices().then((items) => { if (active) setDevices(Array.isArray(items) ? items : []) }); return () => { active = false } }, [])
-  const featured = devices.filter((device) => FEATURED_NETWORK_DEVICES.includes(device.hostname || device.name))
-  const topCpu = [...featured].sort((a, b) => (asLiveNumber(b.cpu) ?? -1) - (asLiveNumber(a.cpu) ?? -1))
-  const topTraffic = [...featured].sort((a, b) => (totalTraffic(b) ?? -1) - (totalTraffic(a) ?? -1))
-  const deviceName = (device) => device.hostname || device.name || device.id
-  return <div className="executive-layout" style={{ marginTop: 20 }}><section className="dashboard-card"><CardHeader eyebrow="Live Zabbix metrics · Grafana datasource" title="Top CPU Devices" /><div className="server-list">{topCpu.map((device) => <div className="server-row" key={device.id}><span className="server-status-dot" data-tone="green" /><span className="server-name"><strong>{deviceName(device)}</strong><small>{device.ip} · item: CPU utilization</small></span><strong>{formatPercentMetric(device.cpu)}</strong></div>)}{!topCpu.length && <p className="trend-empty">No monitored devices returned by Grafana.</p>}</div></section><section className="dashboard-card"><CardHeader eyebrow="Live Zabbix metrics · Grafana datasource" title="Top Network Traffic" /><div className="server-list">{topTraffic.map((device) => <div className="server-row" key={device.id}><span className="server-status-dot" data-tone="cyan" /><span className="server-name"><strong>{deviceName(device)}</strong><small>In {formatTrafficRate(device.inTrafficBps)} · Out {formatTrafficRate(device.outTrafficBps)}</small></span><strong>{formatTrafficRate(totalTraffic(device))}</strong></div>)}{!topTraffic.length && <p className="trend-empty">No monitored devices returned by Grafana.</p>}</div></section></div>
+  const [leaders, setLeaders] = useState({ topCpuDevices: [], topNetworkDevices: [] })
+  useEffect(() => {
+    let active = true
+    api.getDashboard().then((data) => {
+      if (!active || !data) return
+      setLeaders({
+        topCpuDevices: Array.isArray(data.topCpuDevices) ? data.topCpuDevices : [],
+        topNetworkDevices: Array.isArray(data.topNetworkDevices) ? data.topNetworkDevices : [],
+      })
+    })
+    return () => { active = false }
+  }, [])
+  return (
+    <div className="executive-layout" style={{ marginTop: 20 }}>
+      <section className="dashboard-card">
+        <CardHeader eyebrow="Live Zabbix metrics · Grafana datasource" title="Top CPU Devices" />
+        <div className="server-list">
+          {leaders.topCpuDevices.map((device) => (
+            <div className="server-row" key={device.hostname}>
+              <span className="server-status-dot" data-tone="green" />
+              <span className="server-name">
+                <strong>{device.hostname}</strong>
+                <small>{device.ip}</small>
+              </span>
+              <strong>{formatPercentMetric(device.cpu)}</strong>
+            </div>
+          ))}
+          {!leaders.topCpuDevices.length && <p className="trend-empty">No monitored devices returned by Grafana.</p>}
+        </div>
+      </section>
+      <section className="dashboard-card">
+        <CardHeader eyebrow="Live Zabbix metrics · Grafana datasource" title="Top Network Traffic" />
+        <div className="server-list">
+          {leaders.topNetworkDevices.map((device) => (
+            <div className="server-row" key={device.hostname}>
+              <span className="server-status-dot" data-tone="cyan" />
+              <span className="server-name">
+                <strong>{device.hostname}</strong>
+                <small>In {formatTrafficRate(device.trafficIn)} · Out {formatTrafficRate(device.trafficOut)}</small>
+              </span>
+              <strong>{formatTrafficRate((asLiveNumber(device.trafficIn) || 0) + (asLiveNumber(device.trafficOut) || 0))}</strong>
+            </div>
+          ))}
+          {!leaders.topNetworkDevices.length && <p className="trend-empty">No monitored devices returned by Grafana.</p>}
+        </div>
+      </section>
+    </div>
+  )
 }
 
 function TopologyMap() {

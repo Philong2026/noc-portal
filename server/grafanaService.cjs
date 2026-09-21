@@ -688,6 +688,44 @@ function formatLatency(ms) {
   return `${value} ms`
 }
 
+// Dashboard per-device leaderboards — served inside the /api/dashboard payload
+// so the UI renders the Top CPU Devices / Top Network Traffic panels directly
+// from the same enriched inventory (Zabbix-fed for routers and switches) that
+// /api/monitoring serves. `cpu` is a percentage number; traffic values are
+// bits per second, and lists are sorted with the busiest device first.
+function finiteMetricValue(value) {
+  if (value === null || value === undefined || value === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function deviceLeaderIdentity(device) {
+  return {
+    hostname: (device && (device.hostname || device.name)) || (device && device.id) || 'unknown',
+    ip: (device && device.ip) || null,
+  }
+}
+
+function buildTopCpuDevices(devices) {
+  return (Array.isArray(devices) ? devices : [])
+    .map((device) => ({ device, cpu: finiteMetricValue(device.cpu) }))
+    .filter((entry) => entry.cpu !== null)
+    .sort((a, b) => b.cpu - a.cpu)
+    .map((entry) => ({ ...deviceLeaderIdentity(entry.device), cpu: roundTo(entry.cpu, 1) }))
+}
+
+function buildTopNetworkDevices(devices) {
+  return (Array.isArray(devices) ? devices : [])
+    .map((device) => ({
+      device,
+      trafficIn: finiteMetricValue(device.inTrafficBps),
+      trafficOut: finiteMetricValue(device.outTrafficBps),
+    }))
+    .filter((entry) => entry.trafficIn !== null || entry.trafficOut !== null)
+    .sort((a, b) => ((b.trafficIn || 0) + (b.trafficOut || 0)) - ((a.trafficIn || 0) + (a.trafficOut || 0)))
+    .map((entry) => ({ ...deviceLeaderIdentity(entry.device), trafficIn: entry.trafficIn, trafficOut: entry.trafficOut }))
+}
+
 async function collectDeviceTelemetry(prometheusUid, devices, zabbixTelemetry = null) {
   const list = Array.isArray(devices) ? devices : []
   if (!list.length) return list
@@ -968,6 +1006,11 @@ async function getGrafanaSnapshot(force = false) {
 
     const enrichedDevices = await collectDeviceTelemetry(prometheus.uid, realMonitoredAssets, zabbixTelemetry)
 
+    // Per-device leaderboards for the dashboard panels — built from the same
+    // enriched inventory the /api/monitoring endpoint serves.
+    dashboard.topCpuDevices = buildTopCpuDevices(enrichedDevices)
+    dashboard.topNetworkDevices = buildTopNetworkDevices(enrichedDevices)
+
     const snapshot = {
       dashboard,
       monitoring: {
@@ -1019,6 +1062,8 @@ async function getGrafanaSnapshot(force = false) {
         availability: DATA_UNAVAILABLE,
         securityScore: DATA_UNAVAILABLE,
         history: { cpu: [], ram: [], disk: [], traffic: [], availability: [] },
+        topCpuDevices: [],
+        topNetworkDevices: [],
         lastUpdated: new Date().toISOString(),
       }),
       monitoring: withUnavailablePayload({
