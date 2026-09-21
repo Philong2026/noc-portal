@@ -79,7 +79,8 @@ const VERIFIED_INVENTORY_IPS = Object.freeze({
 const normalizeInventory = (devices) => (Array.isArray(devices) ? devices : []).map((device) => {
   const key = String(device?.hostname || device?.name || "").trim().toUpperCase()
   const ip = VERIFIED_INVENTORY_IPS[key]
-  return ip ? { ...device, ip } : device
+  const latencyMs = device?.latencyMs ?? device?.icmpResponseTimeMs
+  return ip ? { ...device, ip, ping: latencyMs } : { ...device, ping: latencyMs }
 })
 
 // Same call surface the app already uses — every method now returns live data.

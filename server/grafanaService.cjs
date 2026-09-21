@@ -217,6 +217,10 @@ const ZABBIX_ITEM_FILTERS = Object.freeze({
   bitsReceived: ['/Interface .*: ?Bits received/'],
   bitsSent: ['/Interface .*: ?Bits sent/'],
   speed: ['/Interface .*: ?Speed/'],
+  // ICMP ping items from Zabbix (Cisco IOS template)
+  icmpPing: ['/Cisco IOS: ICMP ping/'],
+  icmpLoss: ['/Cisco IOS: ICMP loss/'],
+  icmpResponseTime: ['/Cisco IOS: ICMP response time/'],
 })
 
 function findZabbixDatasource(datasourceItems) {
@@ -298,11 +302,13 @@ function zabbixInventoryHostnames(zabbixHost) {
 //   inTrafficBps / outTrafficBps -> sum over physical interface Bits items
 //   interfaceUtilization       -> busiest physical port (in+out)/speed, capped
 //                                 at 100 %, with an aggregate-capacity fallback
+//   icmpResponseTimeMs         -> ICMP response time in milliseconds
+//   icmpLoss                   -> ICMP packet loss percentage
 function buildZabbixHostMetrics(rowsByMetric) {
   const stateByHost = new Map()
   const hostState = (host) => {
     if (!stateByHost.has(host)) {
-      stateByHost.set(host, { cpu: [], ram: [], inByPort: new Map(), outByPort: new Map(), speedByPort: new Map() })
+      stateByHost.set(host, { cpu: [], ram: [], inByPort: new Map(), outByPort: new Map(), speedByPort: new Map(), icmpResponseTime: [], icmpLoss: [] })
     }
     return stateByHost.get(host)
   }
@@ -321,6 +327,8 @@ function buildZabbixHostMetrics(rowsByMetric) {
     const port = physicalInterfacePort(row.labels.item)
     if (port) hostState(row.labels.host).speedByPort.set(port, row.value)
   })
+  ;(rowsByMetric.icmpResponseTime || []).forEach((row) => { hostState(row.labels.host).icmpResponseTime.push(row.value) })
+  ;(rowsByMetric.icmpLoss || []).forEach((row) => { hostState(row.labels.host).icmpLoss.push(row.value) })
 
   const metricsByHostname = {}
   for (const [zabbixHost, state] of stateByHost) {
@@ -352,12 +360,33 @@ function buildZabbixHostMetrics(rowsByMetric) {
       if (totalSpeedBps > 0 && totalBps > 0) interfaceUtilization = Math.min(100, 100 * totalBps / totalSpeedBps)
     }
 
+    // ICMP response time — values are in seconds from Zabbix, convert to ms
+    let icmpResponseTimeMs = null
+    if (state.icmpResponseTime.length) {
+      const valid = state.icmpResponseTime.filter((v) => Number.isFinite(v))
+      if (valid.length) {
+        // Use the latest value (last in array)
+        icmpResponseTimeMs = roundTo(valid[valid.length - 1] * 1000, 2)
+      }
+    }
+
+    // ICMP loss — percentage
+    let icmpLoss = null
+    if (state.icmpLoss.length) {
+      const valid = state.icmpLoss.filter((v) => Number.isFinite(v))
+      if (valid.length) {
+        icmpLoss = roundTo(valid[valid.length - 1], 3)
+      }
+    }
+
     const metrics = {
       cpu: cpu === null ? null : roundTo(cpu, 1),
       ram: ram === null ? null : roundTo(ram, 1),
       inTrafficBps: inTrafficBps > 0 || state.inByPort.size ? inTrafficBps : null,
       outTrafficBps: outTrafficBps > 0 || state.outByPort.size ? outTrafficBps : null,
       interfaceUtilization: interfaceUtilization === null ? null : roundTo(interfaceUtilization, 1),
+      icmpResponseTimeMs,
+      icmpLoss,
       zabbixHost,
     }
     zabbixInventoryHostnames(zabbixHost).forEach((hostname) => {
@@ -382,6 +411,10 @@ async function fetchZabbixDeviceTelemetry(zabbixUid) {
     // window misses them (verified live: 15m returns the switch only, 1h
     // returns every monitored host).
     { key: 'speed', items: ZABBIX_ITEM_FILTERS.speed, from: 'now-1h' },
+    // ICMP ping items for latency and reachability
+    { key: 'icmpPing', items: ZABBIX_ITEM_FILTERS.icmpPing },
+    { key: 'icmpLoss', items: ZABBIX_ITEM_FILTERS.icmpLoss },
+    { key: 'icmpResponseTime', items: ZABBIX_ITEM_FILTERS.icmpResponseTime },
   ]
   const outcomes = await Promise.allSettled(definitions.map((definition) =>
     zabbixQuery(zabbixUid, '/.*/', definition.items, { from: definition.from })))
@@ -726,6 +759,29 @@ function buildTopNetworkDevices(devices) {
     .map((entry) => ({ ...deviceLeaderIdentity(entry.device), trafficIn: entry.trafficIn, trafficOut: entry.trafficOut }))
 }
 
+function buildTopNetworkUtilizationDevices(devices) {
+  return (Array.isArray(devices) ? devices : [])
+    .map((device) => ({
+      device,
+      trafficIn: finiteMetricValue(device.inTrafficBps),
+      trafficOut: finiteMetricValue(device.outTrafficBps),
+    }))
+    .filter((entry) => entry.trafficIn !== null || entry.trafficOut !== null)
+    .sort((a, b) => ((b.trafficIn || 0) + (b.trafficOut || 0)) - ((a.trafficIn || 0) + (a.trafficOut || 0)))
+    .map((entry) => {
+      const inBps = entry.trafficIn || 0
+      const outBps = entry.trafficOut || 0
+      const totalBps = inBps + outBps
+      return {
+        ...deviceLeaderIdentity(entry.device),
+        trafficIn: entry.trafficIn,
+        trafficOut: entry.trafficOut,
+        throughput: totalBps,
+        throughputFormatted: formatBps(totalBps),
+      }
+    })
+}
+
 async function collectDeviceTelemetry(prometheusUid, devices, zabbixTelemetry = null) {
   const list = Array.isArray(devices) ? devices : []
   if (!list.length) return list
@@ -754,7 +810,7 @@ async function collectDeviceTelemetry(prometheusUid, devices, zabbixTelemetry = 
     // fields of the routers and switches.
     const zabbix = zabbixTelemetry ? zabbixTelemetry.byHost[hostname] || null : null
     if (zabbix) {
-      for (const key of ['cpu', 'ram', 'inTrafficBps', 'outTrafficBps', 'interfaceUtilization']) {
+      for (const key of ['cpu', 'ram', 'inTrafficBps', 'outTrafficBps', 'interfaceUtilization', 'icmpResponseTimeMs', 'icmpLoss']) {
         if (Number.isFinite(zabbix[key])) telemetry[key] = zabbix[key]
       }
     }
@@ -773,13 +829,25 @@ async function collectDeviceTelemetry(prometheusUid, devices, zabbixTelemetry = 
       enriched.status = telemetry.up >= 0.5 ? 'Operational' : 'Down'
     }
 
-    // Live latency — ICMP probe duration preferred, scrape duration fallback.
-    const duration = Number.isFinite(telemetry.probeDuration) ? telemetry.probeDuration : telemetry.scrapeDuration
-    if (Number.isFinite(duration)) {
-      const ms = duration * 1000
-      enriched.latencyMs = ms >= 1000 ? Math.round(ms) : ms >= 10 ? Math.round(ms * 10) / 10 : Math.round(ms * 100) / 100
-      enriched.latency = formatLatency(ms)
-      enriched.latencySource = Number.isFinite(telemetry.probeDuration) ? 'probe_duration_seconds' : 'scrape_duration_seconds'
+    // Live latency — Zabbix ICMP response time preferred (direct from device),
+    // then ICMP probe duration, then scrape duration fallback.
+    let latencyMs = null
+    let latencySource = null
+    if (Number.isFinite(telemetry.icmpResponseTimeMs)) {
+      latencyMs = telemetry.icmpResponseTimeMs
+      latencySource = 'icmppingsec (Zabbix)'
+    } else {
+      const duration = Number.isFinite(telemetry.probeDuration) ? telemetry.probeDuration : telemetry.scrapeDuration
+      if (Number.isFinite(duration)) {
+        const ms = duration * 1000
+        latencyMs = ms >= 1000 ? Math.round(ms) : ms >= 10 ? Math.round(ms * 10) / 10 : Math.round(ms * 100) / 100
+        latencySource = Number.isFinite(telemetry.probeDuration) ? 'probe_duration_seconds' : 'scrape_duration_seconds'
+      }
+    }
+    if (Number.isFinite(latencyMs)) {
+      enriched.latencyMs = latencyMs
+      enriched.latency = formatLatency(latencyMs)
+      enriched.latencySource = latencySource
     }
 
     // Live 24h availability — probed-path history for probe targets, scrape
@@ -790,7 +858,7 @@ async function collectDeviceTelemetry(prometheusUid, devices, zabbixTelemetry = 
       enriched.availability = `${roundTo(telemetry.availability * 100, 1)} %`
     }
 
-    for (const key of ['cpu', 'ram', 'inTrafficBps', 'outTrafficBps', 'interfaceUtilization', 'packetLoss']) enriched[key] = telemetry[key]
+    for (const key of ['cpu', 'ram', 'inTrafficBps', 'outTrafficBps', 'interfaceUtilization', 'packetLoss', 'icmpResponseTimeMs', 'icmpLoss']) enriched[key] = telemetry[key]
 
     return enriched
   }))
@@ -1010,6 +1078,7 @@ async function getGrafanaSnapshot(force = false) {
     // enriched inventory the /api/monitoring endpoint serves.
     dashboard.topCpuDevices = buildTopCpuDevices(enrichedDevices)
     dashboard.topNetworkDevices = buildTopNetworkDevices(enrichedDevices)
+    dashboard.topNetworkUtilizationDevices = buildTopNetworkUtilizationDevices(enrichedDevices)
 
     const snapshot = {
       dashboard,
@@ -1064,6 +1133,7 @@ async function getGrafanaSnapshot(force = false) {
         history: { cpu: [], ram: [], disk: [], traffic: [], availability: [] },
         topCpuDevices: [],
         topNetworkDevices: [],
+        topNetworkUtilizationDevices: [],
         lastUpdated: new Date().toISOString(),
       }),
       monitoring: withUnavailablePayload({

@@ -373,9 +373,10 @@ const formatTrafficRate = (value) => { const bps = asLiveNumber(value); if (bps 
 // Top CPU Devices / Top Network Traffic bind directly to the per-device
 // leaderboards the backend now serves inside the /api/dashboard payload
 // (topCpuDevices: { hostname, ip, cpu }, topNetworkDevices:
-// { hostname, ip, trafficIn, trafficOut }) — no client-side re-sorting.
+// { hostname, ip, trafficIn, trafficOut }, topNetworkUtilizationDevices:
+// { hostname, ip, trafficIn, trafficOut, throughput, throughputFormatted }) — no client-side re-sorting.
 function DeviceTelemetryLeaders() {
-  const [leaders, setLeaders] = useState({ topCpuDevices: [], topNetworkDevices: [] })
+  const [leaders, setLeaders] = useState({ topCpuDevices: [], topNetworkDevices: [], topNetworkUtilizationDevices: [] })
   useEffect(() => {
     let active = true
     api.getDashboard().then((data) => {
@@ -383,6 +384,7 @@ function DeviceTelemetryLeaders() {
       setLeaders({
         topCpuDevices: Array.isArray(data.topCpuDevices) ? data.topCpuDevices : [],
         topNetworkDevices: Array.isArray(data.topNetworkDevices) ? data.topNetworkDevices : [],
+        topNetworkUtilizationDevices: Array.isArray(data.topNetworkUtilizationDevices) ? data.topNetworkUtilizationDevices : [],
       })
     })
     return () => { active = false }
@@ -419,6 +421,22 @@ function DeviceTelemetryLeaders() {
             </div>
           ))}
           {!leaders.topNetworkDevices.length && <p className="trend-empty">No monitored devices returned by Grafana.</p>}
+        </div>
+      </section>
+      <section className="dashboard-card">
+        <CardHeader eyebrow="Live Zabbix metrics · Grafana datasource" title="Top Network Utilization" />
+        <div className="server-list">
+          {leaders.topNetworkUtilizationDevices.map((device) => (
+            <div className="server-row" key={device.hostname}>
+              <span className="server-status-dot" data-tone="amber" />
+              <span className="server-name">
+                <strong>{device.hostname}</strong>
+                <small>In {formatTrafficRate(device.trafficIn)} · Out {formatTrafficRate(device.trafficOut)}</small>
+              </span>
+              <strong>{device.throughputFormatted || formatTrafficRate(device.throughput)}</strong>
+            </div>
+          ))}
+          {!leaders.topNetworkUtilizationDevices.length && <p className="trend-empty">No monitored devices returned by Grafana.</p>}
         </div>
       </section>
     </div>
