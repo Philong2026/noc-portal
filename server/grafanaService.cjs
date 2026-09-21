@@ -171,6 +171,224 @@ const FORMATTERS = {
 }
 
 // ---------------------------------------------------------------------------
+// Zabbix telemetry — per-device CPU and network interface metrics are NOT in
+// Prometheus; they live in Grafana through the alexanderzobnin-zabbix-datasource.
+// "Top CPU Devices", "Top Network Traffic" and the "Topology Device Details"
+// CPU / In Traffic / Out Traffic / Interface Utilization fields are therefore
+// fed from Zabbix items, e.g. host CORE-ROUTER-01 item "CPU utilization".
+// ---------------------------------------------------------------------------
+const ZABBIX_DATASOURCE_TYPE = 'alexanderzobnin-zabbix-datasource'
+const ZABBIX_DEVICE_HOSTS = Object.freeze([
+  'CORE-ROUTER-01',
+  'ASR-ROUTER-02',
+  'ASR-ROUTER-03',
+])
+
+// Item-name filters (strings starting and ending with "/" are regexes, exactly
+// how the alexanderzobnin-zabbix-datasource treats item filter names).
+const ZABBIX_ITEM_FILTERS = Object.freeze({
+  cpu: ['CPU utilization'],
+  memory: ['Memory utilization'],
+  bitsReceived: ['/Interface .*Bits received/'],
+  bitsSent: ['/Interface .*Bits sent/'],
+  speed: ['/Interface .*Speed/'],
+  interfaceUtilization: ['/Interface .*Utilization/'],
+})
+
+function findZabbixDatasource(datasourceItems) {
+  const items = Array.isArray(datasourceItems) ? datasourceItems : []
+  return items.find((item) => item && String(item.type || '').toLowerCase().includes('zabbix')) || null
+}
+
+// Combine item-name filters into one Zabbix item filter string. Single filter
+// passes through as-is; multiple filters become a union regex ("/a|b/").
+function unionItemFilter(filters) {
+  const list = (Array.isArray(filters) ? filters : [filters]).filter(Boolean)
+  if (list.length <= 1) return list[0] || ''
+  return `/${list.map((filter) => filter.replace(/^\/|\/$/g, '')).join('|')}/`
+}
+
+function zabbixQuery(zabbixUid, host, itemNameFilters, options = {}) {
+  const datasource = { type: ZABBIX_DATASOURCE_TYPE, uid: zabbixUid }
+  // alexanderzobnin-zabbix-datasource backend contract (pkg/datasource/models.go):
+  // queryType "0" = MODE_METRICS; filters are objects with a `filter` string;
+  // strings wrapped in slashes ("/re/") are treated as regex item filters.
+  return queryDatasource(datasource, [{
+    refId: 'A',
+    datasource,
+    queryType: '0',
+    group: { filter: '' },
+    host: { filter: host },
+    application: { filter: '' },
+    itemTag: { filter: '' },
+    item: { filter: unionItemFilter(itemNameFilters) },
+    itemids: '',
+    functions: [],
+    options: {
+      showDisabledItems: false,
+      disableDataAlignment: false,
+      useZabbixValueMapping: false,
+      useTrends: 'false',
+    },
+  }], {
+    from: options.from || 'now-15m',
+    to: 'now',
+    ...(options.maxDataPoints ? { maxDataPoints: options.maxDataPoints } : null),
+  })
+}
+
+// Latest value of every matching Zabbix item frame — summed across interfaces
+// when a host exposes multiple per-interface items for the same metric.
+function zabbixInstantSum(response, refId) {
+  let total = 0
+  let found = false
+  for (const frame of resultFrames(response, refId)) {
+    const values = frame && frame.data && Array.isArray(frame.data.values) ? frame.data.values : []
+    const numeric = values.length > 1 ? values[1] : []
+    for (let i = numeric.length - 1; i >= 0; i -= 1) {
+      const value = Number(numeric[i])
+      if (Number.isFinite(value)) {
+        total += value
+        found = true
+        break
+      }
+    }
+  }
+  return found ? total : null
+}
+
+// Time-aligned sum of all matching item frames (per-interface traffic history).
+function zabbixSeriesSum(response, refId, maxPoints = HISTORY_MAX_POINTS) {
+  const byTime = new Map()
+  for (const frame of resultFrames(response, refId)) {
+    const values = frame && frame.data && Array.isArray(frame.data.values) ? frame.data.values : []
+    if (values.length < 2) continue
+    const [times, numeric] = values
+    for (let i = 0; i < times.length && i < numeric.length; i += 1) {
+      const value = Number(numeric[i])
+      if (!Number.isFinite(value)) continue
+      const stamp = Number(times[i])
+      const bucket = byTime.get(stamp) || { t: new Date(stamp).toISOString(), v: 0 }
+      bucket.v += value
+      byTime.set(stamp, bucket)
+    }
+  }
+  const points = [...byTime.values()].sort((a, b) => String(a.t).localeCompare(String(b.t)))
+  if (points.length <= maxPoints) return points
+  const step = Math.ceil(points.length / maxPoints)
+  return points.filter((_, index) => index % step === 0 || index === points.length - 1)
+}
+
+// Per-host Zabbix metrics: CPU / memory utilization plus aggregate interface
+// rates. Interface utilization prefers the explicit Zabbix item and otherwise
+// derives from aggregate interface rate versus aggregate interface speed.
+async function resolveZabbixHostMetrics(zabbixUid, host) {
+  const definitions = [
+    { key: 'cpu', items: ZABBIX_ITEM_FILTERS.cpu },
+    { key: 'ram', items: ZABBIX_ITEM_FILTERS.memory },
+    { key: 'inTrafficBps', items: ZABBIX_ITEM_FILTERS.bitsReceived },
+    { key: 'outTrafficBps', items: ZABBIX_ITEM_FILTERS.bitsSent },
+    { key: 'speedMbps', items: ZABBIX_ITEM_FILTERS.speed },
+    { key: 'interfaceUtilizationItem', items: ZABBIX_ITEM_FILTERS.interfaceUtilization },
+  ]
+
+  const outcomes = await Promise.allSettled(definitions.map((definition) =>
+    zabbixQuery(zabbixUid, host, definition.items)))
+  const metrics = {}
+  definitions.forEach((definition, index) => {
+    const outcome = outcomes[index]
+    const value = outcome.status === 'fulfilled' ? zabbixInstantSum(outcome.value, 'A') : null
+    metrics[definition.key] = value
+    logMetricMapping(`Zabbix ${host} ${definition.key}`, {
+      items: definition.items,
+      value,
+      error: outcome.status === 'rejected' ? outcome.reason.message : undefined,
+    })
+  })
+
+  let interfaceUtilization = metrics.interfaceUtilizationItem
+  if (!Number.isFinite(interfaceUtilization)) {
+    const totalBps = (Number.isFinite(metrics.inTrafficBps) ? metrics.inTrafficBps : 0)
+      + (Number.isFinite(metrics.outTrafficBps) ? metrics.outTrafficBps : 0)
+    const totalSpeedBps = Number.isFinite(metrics.speedMbps) ? metrics.speedMbps * 1000000 : 0
+    if (totalSpeedBps > 0 && (Number.isFinite(metrics.inTrafficBps) || Number.isFinite(metrics.outTrafficBps))) {
+      interfaceUtilization = roundTo(Math.min(100, 100 * totalBps / totalSpeedBps), 1)
+    }
+  }
+
+  return {
+    cpu: Number.isFinite(metrics.cpu) ? roundTo(metrics.cpu, 1) : null,
+    ram: Number.isFinite(metrics.ram) ? roundTo(metrics.ram, 1) : null,
+    inTrafficBps: Number.isFinite(metrics.inTrafficBps) ? metrics.inTrafficBps : null,
+    outTrafficBps: Number.isFinite(metrics.outTrafficBps) ? metrics.outTrafficBps : null,
+    interfaceUtilization: Number.isFinite(interfaceUtilization) ? roundTo(interfaceUtilization, 1) : null,
+  }
+}
+
+// Dashboard "CPU Usage" tile — estate CPU now resolves from the Zabbix hosts
+// (alexanderzobnin-zabbix-datasource) instead of Prometheus, matching the
+// router-level metric source. Average of "CPU utilization" across routers.
+async function resolveZabbixDashboardCpu(zabbixUid) {
+  const datasource = { type: ZABBIX_DATASOURCE_TYPE, uid: zabbixUid }
+  const instantOutcomes = await Promise.allSettled(ZABBIX_DEVICE_HOSTS.map((host) =>
+    zabbixQuery(zabbixUid, host, ZABBIX_ITEM_FILTERS.cpu)))
+  const instantValues = instantOutcomes
+    .map((outcome, index) => {
+      const value = outcome.status === 'fulfilled' ? zabbixInstantSum(outcome.value, 'A') : null
+      logMetricMapping(`Zabbix ${ZABBIX_DEVICE_HOSTS[index]} cpu`, {
+        items: ZABBIX_ITEM_FILTERS.cpu,
+        value,
+        error: outcome.status === 'rejected' ? outcome.reason.message : undefined,
+      })
+      return value
+    })
+    .filter((value) => Number.isFinite(value))
+
+  if (!instantValues.length) {
+    logMetricMapping('CPU Usage', { source: 'zabbix', error: 'No Zabbix CPU utilization items returned data' })
+    return { ...UNAVAILABLE_METRIC, datasource }
+  }
+
+  const value = roundTo(instantValues.reduce((sum, item) => sum + item, 0) / instantValues.length, 1)
+
+  let series = []
+  try {
+    const historyOutcomes = await Promise.allSettled(ZABBIX_DEVICE_HOSTS.map((host) =>
+      zabbixQuery(zabbixUid, host, ZABBIX_ITEM_FILTERS.cpu, { from: HISTORY_WINDOW, maxDataPoints: HISTORY_MAX_POINTS * 4 })))
+    const perHost = historyOutcomes
+      .map((outcome) => (outcome.status === 'fulfilled' ? zabbixSeriesSum(outcome.value, 'A', HISTORY_MAX_POINTS * 4) : []))
+      .filter((points) => points.length)
+    // Average the hosts per timestamp.
+    const byTime = new Map()
+    perHost.forEach((points) => points.forEach((point) => {
+      const bucket = byTime.get(point.t) || { t: point.t, total: 0, count: 0 }
+      bucket.total += point.v
+      bucket.count += 1
+      byTime.set(point.t, bucket)
+    }))
+    series = [...byTime.values()]
+      .sort((a, b) => String(a.t).localeCompare(String(b.t)))
+      .map((bucket) => ({ t: bucket.t, v: roundTo(bucket.total / bucket.count, 1) }))
+    if (series.length > HISTORY_MAX_POINTS) {
+      const step = Math.ceil(series.length / HISTORY_MAX_POINTS)
+      series = series.filter((_, index) => index % step === 0 || index === series.length - 1)
+    }
+    logMetricMapping('CPU Usage history (zabbix)', { points: series.length, from: HISTORY_WINDOW })
+  } catch (error) {
+    logMetricMapping('CPU Usage history (zabbix)', { error: error.message })
+  }
+
+  return {
+    value,
+    formatted: FORMATTERS.percent(value),
+    expr: 'avg(item["CPU utilization"]) across Zabbix hosts: CORE-ROUTER-01, ASR-ROUTER-02, ASR-ROUTER-03',
+    series,
+    datasource,
+    relatedPanel: METRIC_QUERIES.cpu.relatedPanel,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Widget metric mapping — each dashboard widget is fed by a real datasource
 // query. `relatedPanel` documents which Grafana dashboard panel visualizes the
 // same metric (traceability; queries run datasource-level, not per panel).
@@ -178,6 +396,11 @@ const FORMATTERS = {
 
 const METRIC_QUERIES = {
   cpu: {
+    // Router CPU utilization is collected by Zabbix ("CPU utilization" item),
+    // surfaced in Grafana through the alexanderzobnin-zabbix-datasource — it is
+    // NOT present in Prometheus. `getGrafanaSnapshot` resolves this metric via
+    // resolveZabbixDashboardCpu() when a Zabbix datasource exists; the exprs
+    // below are only the Prometheus fallback if no Zabbix datasource is found.
     label: 'CPU Usage',
     exprs: ['100 - avg(cpu_usage_idle)', '100 - avg(cpu_usage_idle{mode!~"idle|iowait|guest"})'],
     unit: 'percent',
@@ -275,19 +498,45 @@ async function resolveMetric(prometheusUid, key, definition) {
 // Devices with no matching target keep their manifest values unchanged —
 // no fabricated numbers.
 // ---------------------------------------------------------------------------
-const DEVICE_TELEMETRY_QUERIES = [
-  { key: 'up', expr: 'up' },
-  { key: 'probeSuccess', expr: 'probe_success' },
-  { key: 'probeDuration', expr: 'probe_duration_seconds' },
-  { key: 'scrapeDuration', expr: 'scrape_duration_seconds' },
-  { key: 'availability', expr: 'avg_over_time(up[24h])' },
-  { key: 'probeAvailability', expr: 'avg_over_time(probe_success[24h])' },
-  { key: 'cpu', expr: '100 - avg by (instance) (cpu_usage_idle)' },
-  { key: 'memory', expr: '100 - avg by (instance) (mem_available_percent)' },
-  { key: 'inTrafficBps', expr: 'sum by (instance) (irate(ifHCInOctets[2m]) * 8)' },
-  { key: 'outTrafficBps', expr: 'sum by (instance) (irate(ifHCOutOctets[2m]) * 8)' },
-  { key: 'packetLoss', expr: '100 * (1 - avg by (instance) (probe_success))' },
-]
+const MONITORED_DEVICE_IPS = new Set([
+  '103.122.160.129', // CORE-ROUTER-01
+  '103.122.160.120', // ASR-ROUTER-02
+  '103.122.160.119', // ASR-ROUTER-03
+  '171.244.204.90',  // SWITCH-NOC-SW1
+  '171.244.204.91',  // SWITCH-NOC-SW2
+])
+
+// Every expression below is scoped to one device IP.  Do not replace these
+// with global `sum`/`avg` expressions: dashboard leaders and topology details
+// must never inherit an estate-wide aggregate.
+function ipSelector(ip) {
+  const escaped = String(ip).replace(/\./g, '\\\\.')
+  // `instance` is the Prometheus scrape identity for the SNMP/blackbox
+  // targets. The optional port retains a strict IP match for exporters.
+  return `instance=~"^${escaped}(:[0-9]+)?$"`
+}
+
+function scopedMetric(metric, ip) {
+  return `${metric}{${ipSelector(ip)}}`
+}
+
+// Device-level Prometheus queries keep only what Prometheus actually provides
+// (probe/scrape health, latency, availability, packet loss). Router CPU and
+// network interface metrics are NOT in Prometheus — they come from the Grafana
+// Zabbix datasource below.
+function deviceTelemetryQueries(ip) {
+  const memory = scopedMetric('mem_available_percent', ip)
+  return [
+    { key: 'ram', expr: `100 - avg(${memory})`, transform: (v) => roundTo(v, 1) },
+    { key: 'up', expr: `max(${scopedMetric('up', ip)})` },
+    { key: 'probeSuccess', expr: `max(${scopedMetric('probe_success', ip)})` },
+    { key: 'probeDuration', expr: `max(${scopedMetric('probe_duration_seconds', ip)})` },
+    { key: 'scrapeDuration', expr: `max(${scopedMetric('scrape_duration_seconds', ip)})` },
+    { key: 'availability', expr: `avg_over_time(${scopedMetric('up', ip)}[24h])` },
+    { key: 'probeAvailability', expr: `avg_over_time(${scopedMetric('probe_success', ip)}[24h])` },
+    { key: 'packetLoss', expr: `100 * (1 - avg(${scopedMetric('probe_success', ip)}))`, transform: (v) => roundTo(Math.max(0, v), 3) },
+  ]
+}
 
 const normKey = (value) => String(value || '').trim().toLowerCase()
 const hostKey = (value) => normKey(value).split(':')[0]
@@ -342,80 +591,75 @@ function formatLatency(ms) {
   return `${value} ms`
 }
 
-async function collectDeviceTelemetry(prometheusUid, devices) {
+async function collectDeviceTelemetry(prometheusUid, devices, zabbixUid = null) {
   const list = Array.isArray(devices) ? devices : []
   if (!list.length) return list
   const datasource = { type: 'prometheus', uid: prometheusUid }
+  return Promise.all(list.map(async (device) => {
+    const ip = String(device.ip || '').trim()
+    const hostname = String(device.hostname || device.name || '').trim()
+    // Preserve non-network inventory records, but never manufacture telemetry
+    // for them. Devices with valid Zabbix metrics get their CPU / traffic
+    // values from the Grafana Zabbix datasource instead.
+    if (!MONITORED_DEVICE_IPS.has(ip)) return device
+    const queries = deviceTelemetryQueries(ip)
+    const outcomes = await Promise.allSettled(queries.map((query) =>
+      queryDatasource(datasource, [{ refId: 'A', datasource, expr: query.expr, instant: true, range: false }], { from: 'now-15m', to: 'now' })))
+    const telemetry = {}
+    queries.forEach((query, index) => {
+      const outcome = outcomes[index]
+      const value = outcome.status === 'fulfilled' ? extractInstantValue(outcome.value, 'A') : null
+      telemetry[query.key] = value === null ? null : (query.transform ? query.transform(value) : value)
+      logMetricMapping(`Device telemetry ${device.hostname} ${query.key}`, { ip, expr: query.expr, value: telemetry[query.key], error: outcome.status === 'rejected' ? outcome.reason.message : undefined })
+    })
 
-  const outcomes = await Promise.allSettled(DEVICE_TELEMETRY_QUERIES.map((query) =>
-    queryDatasource(datasource, [{ refId: 'A', datasource, expr: query.expr, instant: true, range: false }], { from: 'now-15m', to: 'now' })))
-
-  const telemetry = {}
-  DEVICE_TELEMETRY_QUERIES.forEach((query, index) => {
-    const outcome = outcomes[index]
-    if (outcome.status !== 'fulfilled') {
-      logMetricMapping(`Device telemetry ${query.key}`, { error: outcome.reason && outcome.reason.message })
-      telemetry[query.key] = []
-      return
+    // CPU + network interface metrics from the Grafana Zabbix datasource.
+    // These items do not exist in Prometheus, so the Zabbix values are the
+    // single source of truth for the CPU / traffic / utilization fields.
+    let zabbix = null
+    if (zabbixUid && ZABBIX_DEVICE_HOSTS.includes(hostname)) {
+      try {
+        zabbix = await resolveZabbixHostMetrics(zabbixUid, hostname)
+      } catch (error) {
+        logMetricMapping(`Zabbix ${hostname} host metrics`, { error: error.message })
+      }
     }
-    telemetry[query.key] = extractLabelledSeries(outcome.value, 'A')
-    logMetricMapping(`Device telemetry ${query.key}`, { targets: telemetry[query.key].length })
-  })
+    if (zabbix) {
+      for (const key of ['cpu', 'ram', 'inTrafficBps', 'outTrafficBps', 'interfaceUtilization']) {
+        if (Number.isFinite(zabbix[key])) telemetry[key] = zabbix[key]
+      }
+    }
 
-  const findRow = (key, candidates) => findTelemetryRow(telemetry[key] || [], candidates)
-
-  return list.map((device) => {
-    const candidates = deviceCandidateKeys(device)
-    const upRow = findRow('up', candidates)
-    const probeRow = findRow('probeSuccess', candidates)
-    const probeDurationRow = findRow('probeDuration', candidates)
-    const scrapeDurationRow = findRow('scrapeDuration', candidates)
-    const availabilityRow = findRow('availability', candidates)
-    const probeAvailabilityRow = findRow('probeAvailability', candidates)
-    const cpuRow = findRow('cpu', candidates)
-    const memoryRow = findRow('memory', candidates)
-    const inTrafficRow = findRow('inTrafficBps', candidates)
-    const outTrafficRow = findRow('outTrafficBps', candidates)
-    const packetLossRow = findRow('packetLoss', candidates)
-
-    const enriched = { ...device }
+    const enriched = { ...device, telemetrySource: zabbix ? 'zabbix' : 'prometheus', telemetryIp: ip, ...(zabbix ? { telemetryDatasource: 'alexanderzobnin-zabbix-datasource' } : null) }
 
     // Live status — blackbox probe success wins, scrape target health follows.
-    if (probeRow && Number.isFinite(probeRow.value)) {
-      enriched.status = probeRow.value >= 0.5 ? 'Operational' : 'Down'
-      enriched.telemetrySource = 'prometheus'
-    } else if (upRow && Number.isFinite(upRow.value)) {
-      enriched.status = upRow.value >= 0.5 ? 'Operational' : 'Down'
-      enriched.telemetrySource = 'prometheus'
+    if (Number.isFinite(telemetry.probeSuccess)) {
+      enriched.status = telemetry.probeSuccess >= 0.5 ? 'Operational' : 'Down'
+    } else if (Number.isFinite(telemetry.up)) {
+      enriched.status = telemetry.up >= 0.5 ? 'Operational' : 'Down'
     }
 
     // Live latency — ICMP probe duration preferred, scrape duration fallback.
-    const durationRow = probeDurationRow && Number.isFinite(probeDurationRow.value) ? probeDurationRow : scrapeDurationRow
-    if (durationRow && Number.isFinite(durationRow.value)) {
-      const ms = durationRow.value * 1000
+    const duration = Number.isFinite(telemetry.probeDuration) ? telemetry.probeDuration : telemetry.scrapeDuration
+    if (Number.isFinite(duration)) {
+      const ms = duration * 1000
       enriched.latencyMs = ms >= 1000 ? Math.round(ms) : ms >= 10 ? Math.round(ms * 10) / 10 : Math.round(ms * 100) / 100
       enriched.latency = formatLatency(ms)
-      enriched.latencySource = durationRow === probeDurationRow ? 'probe_duration_seconds' : 'scrape_duration_seconds'
+      enriched.latencySource = Number.isFinite(telemetry.probeDuration) ? 'probe_duration_seconds' : 'scrape_duration_seconds'
     }
 
     // Live 24h availability — probed-path history for probe targets, scrape
     // target uptime history otherwise.
-    if (probeRow && probeAvailabilityRow && Number.isFinite(probeAvailabilityRow.value)) {
-      enriched.availability = `${roundTo(probeAvailabilityRow.value * 100, 1)} %`
-      enriched.telemetrySource = 'prometheus'
-    } else if (availabilityRow && Number.isFinite(availabilityRow.value)) {
-      enriched.availability = `${roundTo(availabilityRow.value * 100, 1)} %`
-      enriched.telemetrySource = 'prometheus'
+    if (Number.isFinite(telemetry.probeSuccess) && Number.isFinite(telemetry.probeAvailability)) {
+      enriched.availability = `${roundTo(telemetry.probeAvailability * 100, 1)} %`
+    } else if (Number.isFinite(telemetry.availability)) {
+      enriched.availability = `${roundTo(telemetry.availability * 100, 1)} %`
     }
 
-    if (cpuRow && Number.isFinite(cpuRow.value)) enriched.cpu = roundTo(cpuRow.value, 1)
-    if (memoryRow && Number.isFinite(memoryRow.value)) enriched.ram = roundTo(memoryRow.value, 1)
-    if (inTrafficRow && Number.isFinite(inTrafficRow.value)) enriched.inTrafficBps = inTrafficRow.value
-    if (outTrafficRow && Number.isFinite(outTrafficRow.value)) enriched.outTrafficBps = outTrafficRow.value
-    if (packetLossRow && Number.isFinite(packetLossRow.value)) enriched.packetLoss = roundTo(Math.max(0, packetLossRow.value), 3)
+    for (const key of ['cpu', 'ram', 'inTrafficBps', 'outTrafficBps', 'interfaceUtilization', 'packetLoss']) enriched[key] = telemetry[key]
 
     return enriched
-  })
+  }))
 }
 
 // Grafana built-in alertmanager — number of currently firing alerts.
@@ -482,9 +726,18 @@ async function getGrafanaSnapshot(force = false) {
     const dashboardItems = Array.isArray(dashboards) ? dashboards : []
     const datasourceItems = Array.isArray(datasources) ? datasources : []
     const prometheus = datasourceItems.find((item) => item && item.type === 'prometheus')
+    const zabbixDatasource = findZabbixDatasource(datasourceItems)
 
     if (!prometheus) {
       throw new Error('No prometheus datasource found in Grafana.')
+    }
+
+    // Router CPU lives in Zabbix (alexanderzobnin-zabbix-datasource), not in
+    // Prometheus — resolve the dashboard CPU tile from Zabbix when present.
+    if (zabbixDatasource) {
+      console.log(`[Grafana] Zabbix datasource found: uid=${zabbixDatasource.uid} name=${zabbixDatasource.name}`)
+    } else {
+      console.warn('[Grafana] No Zabbix datasource (alexanderzobnin-zabbix-datasource) found; CPU falls back to Prometheus.')
     }
 
     const dashboardDetails = (await Promise.all(
@@ -506,7 +759,10 @@ async function getGrafanaSnapshot(force = false) {
     })
 
     const metricKeys = Object.keys(METRIC_QUERIES)
-    const outcomes = await Promise.allSettled(metricKeys.map((key) => resolveMetric(prometheus.uid, key, METRIC_QUERIES[key])))
+    const outcomes = await Promise.allSettled(metricKeys.map((key) => {
+      if (key === 'cpu' && zabbixDatasource) return resolveZabbixDashboardCpu(zabbixDatasource.uid)
+      return resolveMetric(prometheus.uid, key, METRIC_QUERIES[key])
+    }))
     const metrics = {}
     metricKeys.forEach((key, index) => {
       const outcome = outcomes[index]
@@ -573,6 +829,8 @@ async function getGrafanaSnapshot(force = false) {
       datasourceCount: datasourceItems.length,
       panelCount: panelCatalog.length,
       prometheusUid: prometheus.uid,
+      zabbixUid: zabbixDatasource ? zabbixDatasource.uid : null,
+      cpuSource: zabbixDatasource ? 'alexanderzobnin-zabbix-datasource' : 'prometheus',
       dataUnavailable: false,
     }
 
@@ -608,7 +866,7 @@ async function getGrafanaSnapshot(force = false) {
       { id: 'dev-17', hostname: 'PROMETHEUS-SERVER', name: 'PROMETHEUS-SERVER', ip: 'localhost:9090', type: 'Server', vendor: 'Prometheus TSDB', model: 'Prometheus v2.45', serial: 'SN-PROM-9090', status: 'Operational', monitoringSource: 'Prometheus Self-Monitor', lastSeen: '2 sec ago', availability: '100 %', healthScore: 100, owner: 'System Administration', warranty: '2028-05-31' },
     ]
 
-    const enrichedDevices = await collectDeviceTelemetry(prometheus.uid, realMonitoredAssets)
+    const enrichedDevices = await collectDeviceTelemetry(prometheus.uid, realMonitoredAssets, zabbixDatasource ? zabbixDatasource.uid : null)
 
     const snapshot = {
       dashboard,
@@ -842,5 +1100,3 @@ module.exports = {
   grafanaRequest,
   getGrafanaAlertmanagerAlerts,
 }
-
-

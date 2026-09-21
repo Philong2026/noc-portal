@@ -364,16 +364,23 @@ function ExecutiveSummaryPanel({ availability, securityScore, activeAlerts }) {
 
 const FEATURED_NETWORK_DEVICES = ["CORE-ROUTER-01", "ASR-ROUTER-02", "ASR-ROUTER-03", "SWITCH-NOC-SW1", "SWITCH-NOC-SW2"]
 const asLiveNumber = (value) => { const parsed = Number.parseFloat(value); return Number.isFinite(parsed) ? parsed : null }
-const formatTrafficRate = (value) => { const bps = asLiveNumber(value); if (bps === null) return "Unavailable"; if (bps >= 1e9) return `${(bps / 1e9).toFixed(2)} Gbps`; if (bps >= 1e6) return `${(bps / 1e6).toFixed(1)} Mbps`; if (bps >= 1e3) return `${(bps / 1e3).toFixed(1)} Kbps`; return `${bps.toFixed(0)} bps` }
+const METRIC_NOT_COLLECTED = 'Metric Not Collected'
+const formatPercentMetric = (value) => { const numeric = asLiveNumber(value); return numeric === null ? METRIC_NOT_COLLECTED : `${numeric.toFixed(1)}%` }
+const formatTrafficRate = (value) => { const bps = asLiveNumber(value); if (bps === null) return METRIC_NOT_COLLECTED; if (bps >= 1e9) return `${(bps / 1e9).toFixed(2)} Gbps`; if (bps >= 1e6) return `${(bps / 1e6).toFixed(1)} Mbps`; if (bps >= 1e3) return `${(bps / 1e3).toFixed(1)} Kbps`; return `${bps.toFixed(0)} bps` }
+const totalTraffic = (device) => {
+  const inbound = asLiveNumber(device?.inTrafficBps)
+  const outbound = asLiveNumber(device?.outTrafficBps)
+  return inbound === null && outbound === null ? null : (inbound || 0) + (outbound || 0)
+}
 
 function DeviceTelemetryLeaders() {
   const [devices, setDevices] = useState([])
   useEffect(() => { let active = true; api.getDevices().then((items) => { if (active) setDevices(Array.isArray(items) ? items : []) }); return () => { active = false } }, [])
   const featured = devices.filter((device) => FEATURED_NETWORK_DEVICES.includes(device.hostname || device.name))
   const topCpu = [...featured].sort((a, b) => (asLiveNumber(b.cpu) ?? -1) - (asLiveNumber(a.cpu) ?? -1))
-  const topTraffic = [...featured].sort((a, b) => ((asLiveNumber(b.inTrafficBps) || 0) + (asLiveNumber(b.outTrafficBps) || 0)) - ((asLiveNumber(a.inTrafficBps) || 0) + (asLiveNumber(a.outTrafficBps) || 0)))
+  const topTraffic = [...featured].sort((a, b) => (totalTraffic(b) ?? -1) - (totalTraffic(a) ?? -1))
   const deviceName = (device) => device.hostname || device.name || device.id
-  return <div className="executive-layout" style={{ marginTop: 20 }}><section className="dashboard-card"><CardHeader eyebrow="Live Grafana metrics" title="Top CPU Devices" /><div className="server-list">{topCpu.map((device) => <div className="server-row" key={device.id}><span className="server-status-dot" data-tone="green" /><span className="server-name"><strong>{deviceName(device)}</strong><small>{device.ip}</small></span><strong>{asLiveNumber(device.cpu) === null ? "Unavailable" : `${asLiveNumber(device.cpu).toFixed(1)}%`}</strong></div>)}{!topCpu.length && <p className="trend-empty">No live device telemetry returned by Grafana.</p>}</div></section><section className="dashboard-card"><CardHeader eyebrow="Live Grafana metrics" title="Top Network Traffic" /><div className="server-list">{topTraffic.map((device) => <div className="server-row" key={device.id}><span className="server-status-dot" data-tone="cyan" /><span className="server-name"><strong>{deviceName(device)}</strong><small>In {formatTrafficRate(device.inTrafficBps)} · Out {formatTrafficRate(device.outTrafficBps)}</small></span><strong>{formatTrafficRate((asLiveNumber(device.inTrafficBps) || 0) + (asLiveNumber(device.outTrafficBps) || 0))}</strong></div>)}{!topTraffic.length && <p className="trend-empty">No live device telemetry returned by Grafana.</p>}</div></section></div>
+  return <div className="executive-layout" style={{ marginTop: 20 }}><section className="dashboard-card"><CardHeader eyebrow="Live Zabbix metrics · Grafana datasource" title="Top CPU Devices" /><div className="server-list">{topCpu.map((device) => <div className="server-row" key={device.id}><span className="server-status-dot" data-tone="green" /><span className="server-name"><strong>{deviceName(device)}</strong><small>{device.ip} · item: CPU utilization</small></span><strong>{formatPercentMetric(device.cpu)}</strong></div>)}{!topCpu.length && <p className="trend-empty">No monitored devices returned by Grafana.</p>}</div></section><section className="dashboard-card"><CardHeader eyebrow="Live Zabbix metrics · Grafana datasource" title="Top Network Traffic" /><div className="server-list">{topTraffic.map((device) => <div className="server-row" key={device.id}><span className="server-status-dot" data-tone="cyan" /><span className="server-name"><strong>{deviceName(device)}</strong><small>In {formatTrafficRate(device.inTrafficBps)} · Out {formatTrafficRate(device.outTrafficBps)}</small></span><strong>{formatTrafficRate(totalTraffic(device))}</strong></div>)}{!topTraffic.length && <p className="trend-empty">No monitored devices returned by Grafana.</p>}</div></section></div>
 }
 
 function TopologyMap() {
@@ -1314,10 +1321,11 @@ function TopologyPage() {
                 <div><span>Serial</span><strong>{selectedDevice.serial || '—'}</strong></div>
                 <div><span>Owner</span><strong>{selectedDevice.owner || '—'}</strong></div>
                 <div><span>Last Seen</span><strong>{selectedDevice.lastSeen || '—'}</strong></div>
-                <div><span>CPU</span><strong>{asLiveNumber(selectedDevice.cpu) === null ? '—' : `${asLiveNumber(selectedDevice.cpu).toFixed(1)}%`}</strong></div>
-                <div><span>Memory</span><strong>{asLiveNumber(selectedDevice.ram) === null ? '—' : `${asLiveNumber(selectedDevice.ram).toFixed(1)}%`}</strong></div>
+                <div><span>CPU</span><strong>{formatPercentMetric(selectedDevice.cpu)}</strong></div>
+                <div><span>Memory</span><strong>{formatPercentMetric(selectedDevice.ram)}</strong></div>
                 <div><span>In Traffic</span><strong>{formatTrafficRate(selectedDevice.inTrafficBps)}</strong></div>
                 <div><span>Out Traffic</span><strong>{formatTrafficRate(selectedDevice.outTrafficBps)}</strong></div>
+                <div><span>Interface Utilization</span><strong>{formatPercentMetric(selectedDevice.interfaceUtilization)}</strong></div>
                 <div><span>Packet Loss</span><strong>{asLiveNumber(selectedDevice.packetLoss) === null ? '—' : `${asLiveNumber(selectedDevice.packetLoss).toFixed(3)}%`}</strong></div>
               </div>
 
