@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { Activity, AlertTriangle, BarChart3, Bell, Check, ChevronDown, Cloud, Cpu, Database, Download, Eye, FileText, GitBranch, HardDrive, LayoutDashboard, LockKeyhole, LogOut, Menu, Moon, Network, Search, Server, Settings, ShieldAlert, ShieldCheck, Sun, UserPlus, Users, X, Zap } from 'lucide-react'
+import { Activity, AlertTriangle, Bell, Check, ChevronDown, Cloud, Cpu, Database, Download, Eye, FileText, GitBranch, HardDrive, LayoutDashboard, LockKeyhole, LogOut, Menu, Moon, Network, Search, Server, Settings, ShieldAlert, ShieldCheck, Sun, UserPlus, Users, X, Zap } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import ReactFlow, { Background, Controls, Handle, MiniMap, Position, applyNodeChanges } from 'reactflow'
 import 'reactflow/dist/style.css'
@@ -141,6 +141,12 @@ function AuthLayout({ children, variant = 'login' }) {
               <h2>SVTelecom NOC</h2>
               <p>Enterprise Network Operations Center</p>
             </div>
+            <ul className="feature-list">
+              <li><span className="feature-icon"><Eye size={14} /></span>Centralized Visibility</li>
+              <li><span className="feature-icon"><Network size={14} /></span>Infrastructure Monitoring</li>
+              <li><span className="feature-icon"><ShieldAlert size={14} /></span>Incident Management</li>
+              <li><span className="feature-icon"><ShieldCheck size={14} /></span>Service Assurance</li>
+            </ul>
           </div>
           <div className="vietnam-map">
             <svg viewBox="0 0 420 640" className="vietnam-svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Vietnam network coverage map">
@@ -176,20 +182,16 @@ function AuthLayout({ children, variant = 'login' }) {
                 <path className="flow-dash slow" d="M222,100 Q296,268 300,430" />
               </g>
               <g className="map-node">
-                <line x1="222" y1="100" x2="222" y2="64" />
                 <circle cx="222" cy="100" r="9" fill="rgba(59,130,246,0.35)" className="pulse-ring" />
                 <circle cx="222" cy="100" r="5" fill="#3B82F6" className="pulse-core" />
-                <text x="222" y="52" textAnchor="middle" className="map-node-label">CORE-01</text>
               </g>
               <g className="map-node">
                 <circle cx="292" cy="250" r="8" fill="rgba(59,130,246,0.35)" className="pulse-ring" />
                 <circle cx="292" cy="250" r="4" fill="#3B82F6" className="pulse-core" />
-                <text x="292" y="234" textAnchor="middle" className="map-node-label">SW-EDGE-02</text>
               </g>
               <g className="map-node">
                 <circle cx="300" cy="430" r="7" fill="rgba(247,148,29,0.35)" className="pulse-ring" />
                 <circle cx="300" cy="430" r="3.5" fill="#F7941D" className="pulse-core" />
-                <text x="300" y="414" textAnchor="middle" className="map-node-label">EDGE-03</text>
               </g>
             </svg>
           </div>
@@ -199,12 +201,6 @@ function AuthLayout({ children, variant = 'login' }) {
               <span>Observe</span>
               <span>Control</span>
             </div>
-            <ul className="feature-list">
-              <li><span className="feature-icon"><Network size={15} /></span>Network Monitoring</li>
-              <li><span className="feature-icon"><BarChart3 size={15} /></span>Performance Analytics</li>
-              <li><span className="feature-icon"><ShieldAlert size={15} /></span>Incident Management</li>
-              <li><span className="feature-icon"><Eye size={15} /></span>Service Visibility</li>
-            </ul>
           </div>
         </div>
         <section className="auth-panel">
