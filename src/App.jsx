@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { Activity, AlertTriangle, Bell, Check, ChevronDown, Cloud, Cpu, Database, Download, FileText, GitBranch, HardDrive, LayoutDashboard, LockKeyhole, LogOut, Menu, Moon, Network, Search, Server, Settings, ShieldCheck, Sun, UserPlus, Users, X, Zap } from 'lucide-react'
+import { Activity, AlertTriangle, BarChart3, Bell, Check, ChevronDown, Cloud, Cpu, Database, Download, Eye, FileText, GitBranch, HardDrive, LayoutDashboard, LockKeyhole, LogOut, Menu, Moon, Network, Search, Server, Settings, ShieldAlert, ShieldCheck, Sun, UserPlus, Users, X, Zap } from 'lucide-react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import ReactFlow, { Background, Controls, Handle, MiniMap, Position, applyNodeChanges } from 'reactflow'
 import 'reactflow/dist/style.css'
@@ -14,7 +14,10 @@ const BRAND_LOGO_URL = "http://svtelecom.vn/wp-content/uploads/2025/10/logo-ngan
 const BRAND_NAME = "SVTELECOM NOC"
 const defaultDashboardData = { cpu: '—', ram: '—', disk: '—', traffic: '—', alerts: '—', devices: '—', servers: '—', availability: '—', securityScore: '—', lastUpdated: '—' }
 const demoAccounts = {
-  svtelecom: { password: 'Admin123!', name: 'SVTELECOM NOC', role: 'Administrator', username: 'svtelecom' },
+  'svtelecom': { password: 'Admin123!', name: 'SVTELECOM NOC', role: 'Super Admin', username: 'svtelecom' },
+  'nocadmin': { password: 'Admin123!', name: 'NOC Admin User', role: 'NOC Admin', username: 'nocadmin' },
+  'nocengineer': { password: 'Admin123!', name: 'NOC Engineer User', role: 'NOC Engineer', username: 'nocengineer' },
+  'customer': { password: 'Admin123!', name: 'Customer Read Only', role: 'Customer Read Only', username: 'customer' },
 }
 const AuthContext = createContext(null)
 
@@ -72,30 +75,8 @@ function AuthProvider({ children }) {
       throw error
     }
 
-    const localUser = { id: 'demo-administrator', name: account.name, email: account.username, username: account.username, role: account.role }
-    const demoToken = 'local-demo-administrator'
-
-    localStorage.setItem(LOCAL_AUTH_KEY, 'true')
-    localStorage.setItem(TOKEN_KEY, demoToken)
-    localStorage.setItem(USER_KEY, JSON.stringify(localUser))
-
-    setLocalAuth(true)
-    setUser(localUser)
-    setToken(demoToken)
-
-    return { user: localUser, local: true }
-  }
-
-  const register = async (name, email, password, role) => {
-    const normalizedEmail = String(email || '').trim().toLowerCase()
-    const safeRole = role || 'Viewer'
-    const localUser = {
-      id: `demo-${safeRole.toLowerCase()}-${Date.now()}`,
-      name: name || 'Operations User',
-      email: normalizedEmail,
-      role: safeRole,
-    }
-    const demoToken = `local-demo-${safeRole.toLowerCase()}`
+    const localUser = { id: `demo-${account.role.toLowerCase().replace(/\s+/g, '-')}`, name: account.name, email: account.username, username: account.username, role: account.role }
+    const demoToken = `local-demo-${account.role.toLowerCase().replace(/\s+/g, '-')}`
 
     localStorage.setItem(LOCAL_AUTH_KEY, 'true')
     localStorage.setItem(TOKEN_KEY, demoToken)
@@ -117,7 +98,7 @@ function AuthProvider({ children }) {
     setToken(null)
   }
 
-  return <AuthContext.Provider value={{ user, ready, authenticated: Boolean(token && user), signIn, register, signOut }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ user, ready, authenticated: Boolean(token && user), signIn, signOut }}>{children}</AuthContext.Provider>
 }
 function useAuth() { return useContext(AuthContext) }
 
@@ -138,7 +119,7 @@ function App() {
   }, [])
 
   return <AuthProvider><Routes>
-    <Route path="/login" element={<Login />} /><Route path="/register" element={<Register />} /><Route path="/forgot-password" element={<ForgotPassword />} />
+    <Route path="/login" element={<Login />} /><Route path="/forgot-password" element={<ForgotPassword />} />
     <Route element={<ProtectedRoute />}><Route path="/dashboard" element={<Dashboard />} /><Route path="/monitoring" element={<MonitoringPage />} /><Route path="/topology" element={<TopologyPage />} /><Route path="/alerts" element={<AlertsPage />} /><Route path="/assets" element={<AssetsPage />} /><Route path="/reports" element={<ReportsPage />} /><Route path="/audit" element={<AuditLogPage />} /><Route path="/users" element={<UserManagementPage />} /><Route path="/settings" element={<SettingsPage />} /><Route path="/profile" element={<ProfilePage />} /><Route path="/security" element={<SecurityPage />} /></Route>
     <Route path="*" element={<Navigate to="/dashboard" replace />} />
   </Routes></AuthProvider>
@@ -147,22 +128,218 @@ function ProtectedRoute() { const { authenticated, ready } = useAuth(); return !
 
 function Brand({ className = "brand" }) { return <Link to="/dashboard" className={className}><img src={BRAND_LOGO_URL} alt="Sao Vang Telecom" style={{ width: 142, height: "auto", maxHeight: 34, objectFit: "contain" }} /><span>{BRAND_NAME}</span></Link> }
 
-function AuthLayout({ eyebrow, title, text, children }) {
-  return <main className="auth-page"><div className="auth-visual"><div className="visual-grid" /><div className="auth-orbit orbit-one" /><div className="auth-orbit orbit-two" /><div className="auth-signal"><Activity size={22} /><span>SVTELECOM / SECURE</span></div><div className="auth-visual-copy"><span className="status-dot" />Always-on infrastructure operations.</div></div><section className="auth-panel"><Brand /><div className="auth-copy"><span className="auth-eyebrow">{eyebrow}</span><h1>{title}</h1><p>{text}</p></div>{children}<div className="auth-footer"><span>SVTELECOM NOC Operations Center</span><span>v2.4.0</span></div></section></main>
+function AuthLayout({ children, variant = 'login' }) {
+  if (variant === 'login') {
+    return (
+      <main className="auth-page">
+        <div className="auth-visual">
+          <div className="brand-section">
+            <div className="brand-logo">
+              <img src={BRAND_LOGO_URL} alt="SVTelecom" />
+            </div>
+            <div className="brand-text">
+              <h2>SVTelecom NOC</h2>
+              <p>Enterprise Network Operations Center</p>
+            </div>
+          </div>
+          <div className="vietnam-map">
+            <svg viewBox="0 0 420 640" className="vietnam-svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Vietnam network coverage map">
+              <defs>
+                <linearGradient id="landGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="rgba(59,130,246,0.28)" />
+                  <stop offset="55%" stopColor="rgba(59,130,246,0.14)" />
+                  <stop offset="100%" stopColor="rgba(9,27,43,0.05)" />
+                </linearGradient>
+                <radialGradient id="oceanGradient" cx="50%" cy="42%" r="75%">
+                  <stop offset="0%" stopColor="rgba(59,130,246,0.10)" />
+                  <stop offset="100%" stopColor="rgba(9,27,43,0)" />
+                </radialGradient>
+                <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feGaussianBlur stdDeviation="4" result="coloredBlur" />
+                  <feMerge>
+                    <feMergeNode in="coloredBlur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+              <rect width="420" height="640" fill="url(#oceanGradient)" />
+              <path
+                d="M302.2,96.2L248.6,130.6L215.2,168.5L206.4,196.3L237.0,238.6L274.6,291.0L311.0,315.8L335.4,348.1L353.8,422.3L348.3,492.9L314.9,519.3L268.9,545.2L236.2,578.6L186.1,616.0L171.6,590.3L182.8,563.1L153.1,540.3L187.8,524.1L229.9,521.2L212.3,496.9L279.8,466.0L284.7,417.9L275.4,391.2L282.7,351.0L272.6,322.7L242.2,294.8L216.9,259.4L183.6,212.0L135.5,188.0L147.0,173.6L172.7,163.1L157.1,128.1L107.7,127.8L89.7,91.3L66.2,59.6L87.8,49.8L119.8,50.0L158.8,45.4L193.0,24.0L212.3,39.1L249.0,46.4L242.7,69.5L261.8,85.8L302.2,96.2Z"
+                fill="url(#landGradient)"
+                stroke="rgba(59,130,246,0.6)"
+                strokeWidth="1.5"
+                filter="url(#glow)"
+              />
+              <g className="map-links">
+                <path className="flow-dash" d="M222,100 Q300,160 292,250" />
+                <path className="flow-dash" d="M292,250 Q330,340 300,430" />
+                <path className="flow-dash slow" d="M222,100 Q296,268 300,430" />
+              </g>
+              <g className="map-node">
+                <line x1="222" y1="100" x2="222" y2="64" />
+                <circle cx="222" cy="100" r="9" fill="rgba(59,130,246,0.35)" className="pulse-ring" />
+                <circle cx="222" cy="100" r="5" fill="#3B82F6" className="pulse-core" />
+                <text x="222" y="52" textAnchor="middle" className="map-node-label">CORE-01</text>
+              </g>
+              <g className="map-node">
+                <circle cx="292" cy="250" r="8" fill="rgba(59,130,246,0.35)" className="pulse-ring" />
+                <circle cx="292" cy="250" r="4" fill="#3B82F6" className="pulse-core" />
+                <text x="292" y="234" textAnchor="middle" className="map-node-label">SW-EDGE-02</text>
+              </g>
+              <g className="map-node">
+                <circle cx="300" cy="430" r="7" fill="rgba(247,148,29,0.35)" className="pulse-ring" />
+                <circle cx="300" cy="430" r="3.5" fill="#F7941D" className="pulse-core" />
+                <text x="300" y="414" textAnchor="middle" className="map-node-label">EDGE-03</text>
+              </g>
+            </svg>
+          </div>
+          <div className="tagline-section">
+            <div className="tagline-words">
+              <span>Monitor</span>
+              <span>Observe</span>
+              <span>Control</span>
+            </div>
+            <ul className="feature-list">
+              <li><span className="feature-icon"><Network size={15} /></span>Network Monitoring</li>
+              <li><span className="feature-icon"><BarChart3 size={15} /></span>Performance Analytics</li>
+              <li><span className="feature-icon"><ShieldAlert size={15} /></span>Incident Management</li>
+              <li><span className="feature-icon"><Eye size={15} /></span>Service Visibility</li>
+            </ul>
+          </div>
+        </div>
+        <section className="auth-panel">
+          <div className="glass-card">
+            <div className="card-header">
+              <div className="logo-small">
+                <img src={BRAND_LOGO_URL} alt="SVTelecom" />
+              </div>
+              <h1>Sign In</h1>
+              <p className="auth-access-note">
+                <span className="access-line"><LockKeyhole size={12} /> Authorized Personnel Only</span>
+              </p>
+            </div>
+            {children}
+            <div className="card-footer">
+              <span>SVTelecom NOC Operations Center</span>
+              <span>v2.4.0</span>
+            </div>
+          </div>
+        </section>
+      </main>
+    )
+  }
+  return (
+    <main className="auth-page">
+      <div className="auth-visual">
+        <div className="visual-grid" />
+        <div className="auth-orbit orbit-one" />
+        <div className="auth-orbit orbit-two" />
+        <div className="auth-signal"><Activity size={22} /><span>SVTELECOM / SECURE</span></div>
+        <div className="auth-visual-copy"><span className="status-dot" />Always-on infrastructure operations.</div>
+      </div>
+      <section className="auth-panel">
+        <Brand />
+        <div className="auth-copy">
+          <span className="auth-eyebrow">SVTelecom Network Operations Center</span>
+          <h1>Password recovery.</h1>
+          <p>Enter your work email and we will send a secure link to reset your password. Admin-created accounts only.</p>
+        </div>
+        {children}
+        <div className="auth-footer"><span>SVTELECOM NOC Operations Center</span><span>v2.4.0</span></div>
+      </section>
+    </main>
+  )
 }
 function Login() {
-  const { signIn } = useAuth(); const navigate = useNavigate(); const [username, setUsername] = useState(''); const [password, setPassword] = useState(''); const [error, setError] = useState(''); const [pending, setPending] = useState(false)
-  const submit = async event => { event.preventDefault(); setError(''); setPending(true); try { await signIn(username, password); navigate('/dashboard') } catch (requestError) { setError(requestError.message) } finally { setPending(false) } }
-  return <AuthLayout eyebrow="Welcome back" title={<>Your network.<br /><span>Always ready.</span></>} text="Sign in to monitor infrastructure, investigate incidents, and keep critical services available."><form className="auth-form" onSubmit={submit}><Field label="Username" type="text" autoComplete="username" value={username} onChange={event => setUsername(event.target.value)} placeholder="svtelecom" required /><Field label="Password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} placeholder="Enter your password" required /><div className="form-row"><label className="checkbox"><input type="checkbox" defaultChecked /> Remember me</label><Link to="/forgot-password">Forgot password?</Link></div>{error && <p className="form-error">{error}</p>}<button className="primary-button" type="submit" disabled={pending}>{pending ? 'Signing in...' : 'Sign in'} <Zap size={16} /></button><p className="switch-copy">New to SVTELECOM NOC? <Link to="/register">Create an account</Link></p></form></AuthLayout>
-}
-function Register() {
-  const { register } = useAuth(); const navigate = useNavigate(); const [form, setForm] = useState({ name: '', email: '', password: '' }); const [error, setError] = useState(''); const [pending, setPending] = useState(false); const update = key => event => setForm({ ...form, [key]: event.target.value })
-  const submit = async event => { event.preventDefault(); setError(''); setPending(true); try { await register(form.name || 'Operations User', form.email, form.password); navigate('/dashboard') } catch (requestError) { setError(requestError.message) } finally { setPending(false) } }
-  return <AuthLayout eyebrow="Create workspace access" title={<>One view for<br /><span>every system.</span></>} text="Set up your SVTELECOM NOC profile and bring monitoring, response, and reporting into one focused workspace."><form className="auth-form" onSubmit={submit}><Field label="Full name" value={form.name} onChange={update('name')} placeholder="Jordan Lee" required /><Field label="Work email" type="email" value={form.email} onChange={update('email')} placeholder="you@company.com" required /><Field label="Password" type="password" value={form.password} onChange={update('password')} placeholder="Create a password" minLength="8" required />{error && <p className="form-error">{error}</p>}<button className="primary-button" type="submit" disabled={pending}>{pending ? 'Creating account...' : 'Create account'} <UserPlus size={16} /></button><p className="switch-copy">Already have access? <Link to="/login">Sign in</Link></p></form></AuthLayout>
+  const { signIn } = useAuth()
+  const navigate = useNavigate()
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [pending, setPending] = useState(false)
+
+  const submit = async event => {
+    event.preventDefault()
+    setError('')
+    setPending(true)
+    try {
+      await signIn(username, password)
+      navigate('/dashboard')
+    } catch (requestError) {
+      setError(requestError.message)
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <AuthLayout variant="login">
+      <form className="auth-form" onSubmit={submit}>
+        <Field
+          label="Username"
+          type="text"
+          autoComplete="username"
+          value={username}
+          onChange={event => setUsername(event.target.value)}
+          placeholder="svtelecom"
+          required
+        />
+        <Field
+          label="Password"
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={event => setPassword(event.target.value)}
+          placeholder="Enter your password"
+          required
+        />
+        <div className="form-row">
+          <label className="checkbox">
+            <input type="checkbox" defaultChecked /> Remember me
+          </label>
+          <Link to="/forgot-password">Forgot password?</Link>
+        </div>
+        {error && <p className="form-error">{error}</p>}
+        <button className="primary-button" type="submit" disabled={pending}>
+          {pending ? 'Signing in...' : 'Sign in'} <Zap size={16} />
+        </button>
+        <div className="sso-divider">
+          <span>or continue with</span>
+        </div>
+        <button className="sso-button" type="button" disabled>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.373 0 0 5.373 0 12c0 5.301 3.437 9.8 8.205 11.387.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.033-1.61-4.033-1.61-.546-1.386-1.333-1.756-1.333-1.756-1.089-.744.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.536-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.921.43.372.823 1.102.823 2.222 0 1.606-.015 2.896-.015 3.286 0 .319.21.694.825.576C20.566 21.797 24 17.299 24 12c0-6.627-5.373-12-12-12z"/>
+          </svg>
+          Microsoft Entra ID
+        </button>
+        <p className="sso-note">SSO integration coming soon</p>
+      </form>
+    </AuthLayout>
+  )
 }
 function ForgotPassword() {
   const [sent, setSent] = useState(false)
-  return <AuthLayout eyebrow="Account recovery" title={<>Back to a<br /><span>clear signal.</span></>} text="Enter your work email and we will send a secure link to reset your password."><form className="auth-form" onSubmit={event => { event.preventDefault(); setSent(true) }}>{sent ? <div className="success-message"><span><Check size={18} /></span><div><strong>Reset link sent</strong><p>Check your inbox for the next step. The link expires in 30 minutes.</p></div></div> : <><Field label="Work email" type="email" placeholder="you@company.com" required /><button className="primary-button" type="submit">Send reset link <LockKeyhole size={16} /></button></>}<p className="switch-copy"><Link to="/login">Return to sign in</Link></p></form></AuthLayout>
+  return (
+    <AuthLayout variant="forgot">
+      <form className="auth-form" onSubmit={event => { event.preventDefault(); setSent(true) }}>
+        {sent ? (
+          <div className="success-message">
+            <span><Check size={18} /></span>
+            <div>
+              <strong>Reset link sent</strong>
+              <p>Check your inbox for the next step. The link expires in 30 minutes.</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            <Field label="Work email" type="email" placeholder="you@company.com" required />
+            <button className="primary-button" type="submit">Send reset link <LockKeyhole size={16} /></button>
+          </>
+        )}
+        <p className="switch-copy"><Link to="/login">Return to sign in</Link></p>
+      </form>
+    </AuthLayout>
+  )
 }
 function Field({ label, ...props }) { return <label className="field">{label}<input {...props} /></label> }
 function RoleSelect({ value, onChange }) { return <label className="field">Workspace role<select value={value} onChange={onChange}><option>Admin</option><option>Operator</option><option>Viewer</option></select></label> }
@@ -832,12 +1009,12 @@ function UserManagementPage() {
   const [tab, setTab] = useState('Users')
   const [query, setQuery] = useState('')
   const [users, setUsers] = useState([
-    { id: 1, name: 'Jordan Miller', email: 'jordan.miller@nocautomation.com', role: 'Admin', status: 'Active', lastLogin: '2026-09-17 06:02', activity: '42 actions' },
-    { id: 2, name: 'Priya Shah', email: 'priya.shah@nocautomation.com', role: 'Operator', status: 'Active', lastLogin: '2026-09-17 05:46', activity: '31 actions' },
-    { id: 3, name: 'Samira Khan', email: 'samira.khan@nocautomation.com', role: 'Viewer', status: 'Active', lastLogin: '2026-09-16 18:40', activity: '19 actions' },
-    { id: 4, name: 'Diego Ruiz', email: 'diego.ruiz@nocautomation.com', role: 'Operator', status: 'Disabled', lastLogin: '2026-09-15 11:12', activity: '8 actions' },
+    { id: 1, name: 'Jordan Miller', email: 'jordan.miller@svtelecom.vn', role: 'Super Admin', status: 'Active', lastLogin: '2026-09-17 06:02', activity: '42 actions' },
+    { id: 2, name: 'Priya Shah', email: 'priya.shah@svtelecom.vn', role: 'NOC Admin', status: 'Active', lastLogin: '2026-09-17 05:46', activity: '31 actions' },
+    { id: 3, name: 'Samira Khan', email: 'samira.khan@svtelecom.vn', role: 'NOC Engineer', status: 'Active', lastLogin: '2026-09-16 18:40', activity: '19 actions' },
+    { id: 4, name: 'Diego Ruiz', email: 'diego.ruiz@svtelecom.vn', role: 'Customer Read Only', status: 'Disabled', lastLogin: '2026-09-15 11:12', activity: '8 actions' },
   ])
-  const [form, setForm] = useState({ name: '', email: '', role: 'Viewer' })
+  const [form, setForm] = useState({ name: '', email: '', role: 'Customer Read Only' })
   const [notice, setNotice] = useState('')
 
   const visibleUsers = users.filter((user) => `${user.name} ${user.email} ${user.role}`.toLowerCase().includes(query.toLowerCase()))
@@ -857,7 +1034,7 @@ function UserManagementPage() {
     }
 
     setUsers((current) => [nextUser, ...current])
-    setForm({ name: '', email: '', role: 'Viewer' })
+    setForm({ name: '', email: '', role: 'Customer Read Only' })
     setNotice(`User ${nextUser.name} created successfully.`)
   }
 
@@ -876,9 +1053,10 @@ function UserManagementPage() {
   }
 
   const roles = [
-    { name: 'Admin', description: 'Full access to health, alerting, users, and configuration.', count: users.filter((user) => user.role === 'Admin').length },
-    { name: 'Operator', description: 'Can collaborate on incidents, responses, and monitoring actions.', count: users.filter((user) => user.role === 'Operator').length },
-    { name: 'Viewer', description: 'Read-only access to dashboards, reports, and audit data.', count: users.filter((user) => user.role === 'Viewer').length },
+    { name: 'Super Admin', description: 'Full system access including user management, configuration, and security.', count: users.filter((user) => user.role === 'Super Admin').length },
+    { name: 'NOC Admin', description: 'Operations administration: monitoring, alerting, incidents, and asset management.', count: users.filter((user) => user.role === 'NOC Admin').length },
+    { name: 'NOC Engineer', description: 'Hands-on operations: incident response, monitoring actions, and telemetry analysis.', count: users.filter((user) => user.role === 'NOC Engineer').length },
+    { name: 'Customer Read Only', description: 'Read-only access to dashboards, reports, and audit data.', count: users.filter((user) => user.role === 'Customer Read Only').length },
   ]
 
   const permissions = [
@@ -888,7 +1066,7 @@ function UserManagementPage() {
     { section: 'Administration', items: ['Create users', 'Assign roles', 'Reset passwords'] },
   ]
 
-  return <div className="dashboard"><PageHeader eyebrow="User management" title={<>Control access across your<br /><span>operations teams.</span></>} text="Manage users, roles, and permissions from a single administrative workspace." action={<button className="outline-button" type="button">Invite user</button>} /><section className="dashboard-card settings-panel"><div className="settings-tabs">{['Users', 'Roles', 'Permissions'].map((item) => <button key={item} type="button" className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}</button>)}</div>{notice && <div className="success-message" style={{ marginBottom: 16 }}><span><Check size={18} /></span><div><strong>Update complete</strong><p>{notice}</p></div></div>}{tab === 'Users' && <div className="user-management-layout"><div className="user-form-card"><h3>Create user</h3><form onSubmit={createUser} className="user-create-form"><label className="settings-field"><span>Full name</span><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Jamie Patel" /></label><label className="settings-field"><span>Email</span><input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="jamie@nocautomation.com" /></label><label className="settings-field"><span>Role</span><select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option>Admin</option><option>Operator</option><option>Viewer</option></select></label><button className="primary-button" type="submit">Create user <UserPlus size={16} /></button></form></div><div className="user-table-card"><div className="audit-toolbar"><div className="device-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search users..." /></div></div><div className="table-wrap"><table className="monitoring-table"><thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last Login</th><th>Activity</th><th>Actions</th></tr></thead><tbody>{visibleUsers.map((user) => <tr key={user.id}><td><strong>{user.name}</strong><div className="table-subtle">{user.email}</div></td><td><select value={user.role} onChange={(event) => assignRole(user.id, event.target.value)}><option>Admin</option><option>Operator</option><option>Viewer</option></select></td><td><span className={`status-pill ${user.status === 'Active' ? 'green' : 'amber'}`}>{user.status}</span></td><td>{user.lastLogin}</td><td>{user.activity}</td><td><div className="user-actions"><button type="button" className="outline-button small-button" onClick={() => resetPassword(user.email)}>Reset</button><button type="button" className="outline-button small-button" onClick={() => disableUser(user.id)}>{user.status === 'Active' ? 'Disable' : 'Enable'}</button></div></td></tr>)}</tbody></table></div></div></div>}{tab === 'Roles' && <div className="grid-two-column"><div className="role-card-grid">{roles.map((role) => <div key={role.name} className="dashboard-card role-card"><span className={`role-badge role-${role.name === 'Admin' ? '0' : role.name === 'Operator' ? '1' : '2'}`}>{role.name.slice(0, 1)}</span><h3>{role.name}</h3><p>{role.description}</p><ul>{['Manage access', 'View reports', 'Audit trail'].map((item) => <li key={item}>{item}</li>)}</ul><strong>{role.count} users</strong></div>)}</div></div>}{tab === 'Permissions' && <div className="permission-grid">{permissions.map((group) => <div key={group.section} className="dashboard-card permission-card"><h3>{group.section}</h3><ul>{group.items.map((item) => <li key={item}><span>{item}</span><span className="status-pill green">Allowed</span></li>)}</ul></div>)}</div>}</section></div>
+  return <div className="dashboard"><PageHeader eyebrow="User management" title={<>Control access across your<br /><span>operations teams.</span></>} text="Manage users, roles, and permissions from a single administrative workspace." action={<button className="outline-button" type="button">Invite user</button>} /><section className="dashboard-card settings-panel"><div className="settings-tabs">{['Users', 'Roles', 'Permissions'].map((item) => <button key={item} type="button" className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}</button>)}</div>{notice && <div className="success-message" style={{ marginBottom: 16 }}><span><Check size={18} /></span><div><strong>Update complete</strong><p>{notice}</p></div></div>}{tab === 'Users' && <div className="user-management-layout"><div className="user-form-card"><h3>Create user</h3><form onSubmit={createUser} className="user-create-form"><label className="settings-field"><span>Full name</span><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Jamie Patel" /></label><label className="settings-field"><span>Email</span><input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="jamie@nocautomation.com" /></label><label className="settings-field"><span>Role</span><select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option>Super Admin</option><option>NOC Admin</option><option>NOC Engineer</option><option>Customer Read Only</option></select></label><button className="primary-button" type="submit">Create user <UserPlus size={16} /></button></form></div><div className="user-table-card"><div className="audit-toolbar"><div className="device-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search users..." /></div></div><div className="table-wrap"><table className="monitoring-table"><thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last Login</th><th>Activity</th><th>Actions</th></tr></thead><tbody>{visibleUsers.map((user) => <tr key={user.id}><td><strong>{user.name}</strong><div className="table-subtle">{user.email}</div></td><td><select value={user.role} onChange={(event) => assignRole(user.id, event.target.value)}><option>Admin</option><option>Operator</option><option>Viewer</option></select></td><td><span className={`status-pill ${user.status === 'Active' ? 'green' : 'amber'}`}>{user.status}</span></td><td>{user.lastLogin}</td><td>{user.activity}</td><td><div className="user-actions"><button type="button" className="outline-button small-button" onClick={() => resetPassword(user.email)}>Reset</button><button type="button" className="outline-button small-button" onClick={() => disableUser(user.id)}>{user.status === 'Active' ? 'Disable' : 'Enable'}</button></div></td></tr>)}</tbody></table></div></div></div>}{tab === 'Roles' && <div className="grid-two-column"><div className="role-card-grid">{roles.map((role) => <div key={role.name} className="dashboard-card role-card"><span className={`role-badge role-${role.name === 'Admin' ? '0' : role.name === 'Operator' ? '1' : '2'}`}>{role.name.slice(0, 1)}</span><h3>{role.name}</h3><p>{role.description}</p><ul>{['Manage access', 'View reports', 'Audit trail'].map((item) => <li key={item}>{item}</li>)}</ul><strong>{role.count} users</strong></div>)}</div></div>}{tab === 'Permissions' && <div className="permission-grid">{permissions.map((group) => <div key={group.section} className="dashboard-card permission-card"><h3>{group.section}</h3><ul>{group.items.map((item) => <li key={item}><span>{item}</span><span className="status-pill green">Allowed</span></li>)}</ul></div>)}</div>}</section></div>
 }
 function AssetsPage() {
   const [assetList, setAssetList] = useState([])
